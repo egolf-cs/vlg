@@ -1,0 +1,9 @@
+*.aux
+*.conf
+*.d
+*.glob
+*.vo
+*.vos
+*.vok
+*~
+
