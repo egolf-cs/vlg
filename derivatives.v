@@ -154,6 +154,6 @@ Program Fixpoint der_sub_all (abet : list Sigma) (r : reg_exp) {measure (mu_s r)
     flat_map (fun a => (der_sub_all abet (derivative a r))) abet
   end.
 Next Obligation. 
-  apply der_decreasing. apply H0. apply H.
+  apply der_decreasing. apply H.
 Qed.
 
