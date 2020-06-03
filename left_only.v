@@ -61,9 +61,9 @@ Abort.*)
 
 Fixpoint mu (r : reg_exp) := 
   match r with
-  | EmptySet
-  | EmptyStr => 0
-  | Char _ => 1
+  | EmptySet => 0
+  | EmptyStr => 1
+  | Char _ => 2
   | Union r _
   | App r _
   | Star r => (mu r)
@@ -118,6 +118,7 @@ Fixpoint simplify (r : reg_exp) :=
                 | EmptySet => EmptySet
                 | _ => r
                 end
+  | Star EmptySet => EmptyStr
   | _ => r
   end.
 
@@ -126,17 +127,17 @@ Proof.
   intros r1 r2 H. simpl. rewrite <- H. destruct r1; reflexivity.
 Qed.
 
-Theorem der_decreasing : forall(a : Sigma) (r : reg_exp), EmptySet <> simplify r -> EmptyStr <> simplify r-> (mu_s (derivative a r)) < (mu_s r).
+Theorem der_decreasing : forall(a : Sigma) (r : reg_exp), EmptySet <> simplify r -> (mu_s (derivative a r)) < (mu_s r).
 Proof.
-  intros a r. induction r; intros Hset Hstr; try(contradiction).
+  intros a r. induction r; intros Hset.
+  - contradiction.
+  - unfold mu_s. simpl. omega.
   - unfold mu_s. destruct (Sigma_dec t a) eqn:E; simpl; rewrite E; simpl; omega.
   - simpl. rewrite mu_s_left_U. repeat rewrite mu_s_left_App. apply IHr1.
     + unfold not. intros C. apply simplify_empty_app with (r2 := r2) in C. contradiction.
-    + admit. (* Whelp I think this might be why recursing only on the left doesn't work *)
   - simpl. repeat rewrite mu_s_left_U. apply IHr1.
-    + admit. (* This also looks like a point of failure for only recursing on the left *)
-    + admit. (* Also don't see this one working out *)
-  - rewrite mu_s_rec_Star. apply IHr. (* This is probably fixable by changing simplify. The above issues are not *)
+    + admit. (* cannot reach contradiction *)
+  - rewrite mu_s_rec_Star. apply IHr. simpl in Hset. (* cannot reach contradiction *)
 Admitted.
 (* I no longer think recursing only on the left will work *)
 
@@ -146,7 +147,7 @@ where each branch is a character in the alphabet abet *)
 Program Fixpoint der_sub_all (abet : list Sigma) (r : reg_exp) {measure (mu_s r)} : list reg_exp :=
   match simplify r with
   | EmptySet => [EmptySet]
-  | EmptyStr => [EmptyStr]
+  (* | EmptyStr => [EmptySet] *) (* This is unnecessary and might be causing problems *)
   | _ =>
     (* take the derivative of the regex with respect to all chars *)
     (* find all the derivatives of all these derivatives *)
