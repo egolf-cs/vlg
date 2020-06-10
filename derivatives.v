@@ -1,11 +1,16 @@
 Require Import List.
 Import ListNotations.
+Require Import Nat.
 Require Import Coq.Program.Wf.
 Require Import Coq.omega.Omega.
 
 (* Borrowed these from another paper, actually about regex derivatives *)
 Variable Sigma : Type.
+Variable a : Sigma.
+Variable b : Sigma.
+Variable c : Sigma.
 Variable Sigma_dec : forall (c c': Sigma), {c = c'} + {c <> c'}.
+Axiom Sigma_dec_refl : forall(a : Sigma), true = if Sigma_dec a a then true else false.
 
 (* Didn't bother with Intersection and Complement yet *)
 Inductive reg_exp : Type :=
@@ -16,6 +21,121 @@ Inductive reg_exp : Type :=
   | Union (r1 r2 : reg_exp)
   | Star (r : reg_exp).
 
+Fixpoint re_exact (r s : reg_exp) :=
+  match r, s with
+  | EmptySet, EmptySet => true
+  | EmptySet, EmptyStr=> false
+  | EmptySet, Char _ => false
+
+  | EmptyStr, EmptySet => false
+  | EmptyStr, EmptyStr => true
+  | EmptyStr, Char _ => false
+
+  | Char _, EmptySet => false
+  | Char _, EmptyStr => false
+  | Char a, Char b => if Sigma_dec a b then true else false
+
+  | Union r1 r2, Union s1 s2 => andb (re_exact r1 s1) (re_exact r2 s2)
+  | App r1 r2, App s1 s2 => andb (re_exact r1 s1) (re_exact r2 s2)
+  | Star r', Star s' => re_exact r' s'
+
+  | _, _ => false
+  end.
+
+Definition simplify (r : reg_exp) : reg_exp :=
+  match r with
+  | App EmptySet r' => EmptySet
+  | App r' EmptySet => EmptySet
+  | App EmptyStr r' => r'
+  | App r' EmptyStr => r'
+  | Union EmptySet r' => r'
+  | Union r1 r2 => if re_exact r1 r2 then r1 else r
+  | Star (Star r') => Star r'
+  | Star EmptyStr => EmptyStr
+  | Star EmptySet => EmptySet
+  | _ => r
+  end.
+
+(* check associativity/commutativity properties on one side *)
+Definition similar_left (r s : reg_exp) : bool :=
+  if re_exact r s then true else
+    
+    match r, s with
+    
+    (* App is associative *)
+    | App (App r1 r2) r3, App s1 (App s2 s3) => andb (andb (re_exact r1 s1) (re_exact r2 s2)) (re_exact r3 s3)
+
+    (* Union *)
+                                     (* Union is commutative *)          
+    | Union r1 t3, Union u1 s2 => if andb (re_exact r1 s2) (re_exact t3 u1) then true else
+                                   match r1, s2 with
+                                     (* Union is associative *)
+                                   | Union t1 t2, Union u2 u3 => andb (andb (re_exact t1 u1) (re_exact t2 u2)) (re_exact t3 u3)
+                                   | _, _ => re_exact r s
+                                   end
+
+    | _, _ => re_exact r s
+    end.
+
+Theorem same_choice : forall(b : bool), true = if b then true else true.
+Proof.
+  intros b. destruct b; reflexivity.
+Qed.
+
+Theorem or_true_true : forall(b : bool), true = orb b true.
+Proof.
+  intros b. destruct b; simpl; reflexivity.
+Qed.
+
+(* check assoc/comm on both sides, after applying simplification rules *)
+Definition similar (r' s' : reg_exp) : bool :=
+  let
+    r := simplify r' in
+  let
+    s := simplify s' in
+  
+  orb (similar_left r s) (similar_left s r).
+
+Example similar_t1 : true = similar EmptySet EmptySet.
+Proof.
+  unfold similar. simpl. reflexivity.
+Qed.
+
+Example similar_t2 : true = similar (App EmptySet (Char a)) EmptySet.
+Proof.
+  unfold similar. simpl. reflexivity.
+Qed.
+
+Example similar_t3 : true = similar (App (App (Char a) (Char b)) (Char c)) (App (Char a) (App (Char b) (Char c))).
+Proof.
+  unfold similar. unfold similar_left. simpl.
+  rewrite <- Sigma_dec_refl with (a := a).
+  rewrite <- Sigma_dec_refl with (a := b).
+  rewrite <- Sigma_dec_refl with (a := c).
+  simpl. reflexivity.
+Qed.
+
+Example similar_t4 : true = similar (Union (Union (Char a) (Char b)) (Char c)) (Union (Char a) (Union (Char b) (Char c))).
+Proof.
+  unfold similar. unfold similar_left. simpl.
+  rewrite <- Sigma_dec_refl with (a := a).
+  rewrite <- Sigma_dec_refl with (a := b).
+  rewrite <- Sigma_dec_refl with (a := c).
+  simpl. rewrite <- same_choice. simpl. reflexivity.
+Qed.
+
+Example similar_t5 : true = similar (Union (Char a) (Union (Char b) (Char c))) (Union (Union (Char a) (Char b)) (Char c)).
+Proof.
+  unfold similar. unfold similar_left. simpl.
+  rewrite <- Sigma_dec_refl with (a := a).
+  rewrite <- Sigma_dec_refl with (a := b).
+  rewrite <- Sigma_dec_refl with (a := c).
+  simpl. rewrite <- same_choice. rewrite <- or_true_true. reflexivity.
+Qed.
+
+Theorem sim_re_equiv : forall(r1 r2 : reg_exp) (s : list Sigma), matches r1 s -> similar r1 r2 -> matches r2 s.
+
+                           
 Fixpoint nullify (r : reg_exp) :=
   match r with
   | EmptySet => EmptySet
@@ -44,116 +164,30 @@ Fixpoint derivative (a : Sigma) (r : reg_exp) :=
   | Star r => App (derivative a r) (Star r)
   end.
 
-(* a measure will need to go here *)(*
-Definition mu' (c : Sigma) (r : reg_exp) := 0.
-                 
-
-(* This program would recursively take derivatives with respect to the same symbol *)
-Program Fixpoint der_it (a : Sigma) (r : reg_exp) {measure (mu' a r)} :=
-  match r with
-  (* Might need Not(EmptySet) and Not(EmptyStr) as base cases if we extend to Complement *)
-  | EmptySet => EmptySet
-  | EmptyStr => EmptyStr
-  | _ => der_it a (derivative a r) (* Might need to do something special with App and Star *)
-  end.
-Next Obligation.
-Abort.*)
-
-Fixpoint mu (r : reg_exp) := 
+Fixpoint mu (r : reg_exp) (seen : list reg_exp) := 
   match r with
   | EmptySet => 0
   | EmptyStr => 1
   | Char _ => 2
-  | Union r _
-  | App r _
-  | Star r => (mu r)
+  | App r1 r2 => (mu r1 seen)
+  | Union r1 r2 => (mu r1 seen) * (mu r2 seen)
+  | Star r => mu r seen
   end.
 
-Fixpoint rec_left (r : reg_exp) :=
-  match r with
-  | EmptySet => EmptySet
-  | EmptyStr => EmptyStr
-  | Char t => Char t
-  | App r _
-  | Union r _
-  | Star r => rec_left r
-  end.
-
-Definition mu_s (r : reg_exp) := mu (rec_left r).
-
-(* These 3 lemmas are useful for avoiding unfolding mu_s in recursive cases of der_decreasing *)
-Lemma mu_s_left_U : forall(r1 r2 : reg_exp), mu_s (Union r1 r2) = mu_s r1.
+Theorem der_decreasing : forall(a : Sigma) (r : reg_exp) (seen : list reg_exp), false = In_exact (derivative a r) seen -> mu (derivative a r) (r::seen) < mu r seen.
 Proof.
-  intros r1 r2. unfold mu_s. simpl. reflexivity.
-Qed.
-
-Lemma mu_s_left_App : forall(r1 r2 : reg_exp), mu_s (App r1 r2) = mu_s r1.
-Proof.
-  intros r1 r2. unfold mu_s. simpl. reflexivity.
-Qed.
-
-Lemma mu_s_rec_Star : forall(r : reg_exp), mu_s (Star r) = mu_s r.
-Proof.
-  intros r. unfold mu_s. simpl. reflexivity.
-Qed.
-
-(* mu decreases relative to a regex when applied to that regex's derivative *)
-(** I made the mistake of using rec_left in the hypotheses. It should be just r (or whatever I'm matching with in der_sub_all) **)
-Theorem der_decreasing' : forall(a : Sigma) (r : reg_exp), rec_left r <> EmptySet -> rec_left r <> EmptyStr -> (mu_s (derivative a r)) < (mu_s r).
-Proof.
-  intros a r. induction r; intros Hset Hstr; try(contradiction).
-  - unfold mu_s. destruct (Sigma_dec t a) eqn:E; simpl; rewrite E; simpl; omega.
-  - simpl. rewrite mu_s_left_U. repeat rewrite mu_s_left_App.
-    apply IHr1. simpl in Hset. apply Hset. simpl in Hstr. apply Hstr.
-  - simpl. repeat rewrite mu_s_left_U.
-    apply IHr1. simpl in Hset. apply Hset. simpl in Hstr. apply Hstr.
-  - simpl. rewrite mu_s_left_App. repeat rewrite mu_s_rec_Star.
-    apply IHr. simpl in Hset. apply Hset. simpl in Hstr. apply Hstr.
-Qed.
-
-Fixpoint simplify (r : reg_exp) :=
-  match r with
-  | App EmptySet _ => EmptySet
-  | App r1 r2 => match simplify r1 with
-                | EmptySet => EmptySet
-                | _ => r
-                end
-  | Star EmptySet => EmptyStr
-  | _ => r
-  end.
-
-Lemma simplify_empty_app : forall(r1 r2 : reg_exp), EmptySet = simplify r1 -> EmptySet = simplify (App r1 r2).
-Proof.
-  intros r1 r2 H. simpl. rewrite <- H. destruct r1; reflexivity.
-Qed.
-
-Theorem der_decreasing : forall(a : Sigma) (r : reg_exp), EmptySet <> simplify r -> (mu_s (derivative a r)) < (mu_s r).
-Proof.
-  intros a r. induction r; intros Hset.
-  - contradiction.
-  - unfold mu_s. simpl. omega.
-  - unfold mu_s. destruct (Sigma_dec t a) eqn:E; simpl; rewrite E; simpl; omega.
-  - simpl. rewrite mu_s_left_U. repeat rewrite mu_s_left_App. apply IHr1.
-    + unfold not. intros C. apply simplify_empty_app with (r2 := r2) in C. contradiction.
-  - simpl. repeat rewrite mu_s_left_U. apply IHr1.
-    + admit. (* cannot reach contradiction *)
-  - rewrite mu_s_rec_Star. apply IHr. simpl in Hset. (* cannot reach contradiction *)
-Admitted.
-(* I no longer think recursing only on the left will work *)
-
-
+  
+  
 (* This program would explore the entire tree of subsequent derivatives, 
 where each branch is a character in the alphabet abet *)
-Program Fixpoint der_sub_all (abet : list Sigma) (r : reg_exp) {measure (mu_s r)} : list reg_exp :=
-  match simplify r with
-  | EmptySet => [EmptySet]
-  (* | EmptyStr => [EmptySet] *) (* This is unnecessary and might be causing problems *)
-  | _ =>
-    (* take the derivative of the regex with respect to all chars *)
-    (* find all the derivatives of all these derivatives *)
-    flat_map (fun a => (der_sub_all abet (derivative a r))) abet
+Program Fixpoint Delta (abet : list Sigma) (a : Sigma)
+        (r : reg_exp) (seen : list reg_exp) {measure (mu r seen)} : list reg_exp :=
+  match In_exact (derivative a r) seen with
+  | true => [r]
+  | false => r::(flat_map (fun b => Delta abet b (derivative a r) (r::seen) ) abet)
   end.
-Next Obligation. 
-  apply der_decreasing. apply H.
+  
+Next Obligation.
+  apply der_decreasing. apply Heq_anonymous.
 Qed.
 
