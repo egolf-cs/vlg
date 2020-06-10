@@ -38,14 +38,14 @@ Inductive exp_match : String -> regex -> Prop :=
                 (H2 : exp_match s2 re2) :
                 exp_match s2 (Union re1 re2)
   | MStar0 re : exp_match [] (Star re)
-  (* MStarChar was added because I couldn't prove it from the other rules, 
-     but it was necessary for a proof and it is true on pen and paper *)
-  | MStarChar a re
-                 (H1 : exp_match [a] re) :
-      exp_match [a] (Star re)
-  (* Had to restrict this casae with H0 so that it didn't interfere with MStarChar *)
+                          
+  (* Had to restrict this case with H0 to avoid infinite regress.
+   Both s1 and s2 must "contribute" to s1 ++ s2.
+
+   The set of possible s1 ++ s2 without H0 is equivalent to the set with H0,
+   except for the empty string, which is addressed with MStar0. *)
   | MStarApp s1 s2 re
-                 (H0 : length(s1 ++ s2) > 1)
+                 (H0 : s1 <> [])
                  (H1 : exp_match s1 re)
                  (H2 : exp_match s2 (Star re)) :
       exp_match (s1 ++ s2) (Star re).
@@ -67,7 +67,8 @@ Fixpoint derivative (a : Sigma) (r : regex) :=
   | EmptySet => EmptySet
   | EmptyStr => EmptySet
   | Char x => if Sigma_dec x a then EmptyStr else EmptySet
-  | App r1 r2 =>  Union (App (derivative a r1) r2) (App (nullify r1) (derivative a r2))
+  | App r1 r2 => if (nullable r1) then Union (App (derivative a r1) r2) (derivative a r2)
+                                  else (App (derivative a r1) r2)               
   | Union r1 r2 => Union (derivative a r1) (derivative a r2)
   | Star r => App (derivative a r) (Star r)
   end.
@@ -95,21 +96,6 @@ Proof.
   intros s1 s2 H. destruct s1; destruct s2; try(simpl in H; discriminate).
   - split; reflexivity.
 Qed.
-
-Lemma singleton_app : forall(a : Sigma) (s1 s2 : String),
-    s1 ++ s2 = [a] -> (s1 = [a] /\ s2 = []) \/ (s1 = [] /\ s2 = [a]).
-Proof.
-Admitted.
-
-Lemma mute_nullify : forall(r : regex),
-    nullable (nullify r) = nullable r.
-Proof.
-Admitted.
-
-Lemma Star_empty_empty : forall(s : String),
-    exp_match s (Star EmptyStr) -> s = [].
-Proof.
-Admitted.
 
 Theorem nullable_bridge : forall(r : regex),
     true = nullable r <-> exp_match [] r.
@@ -155,35 +141,74 @@ Proof.
   intros a s r.
   split.
   {
-    generalize dependent r. induction s; intros r H.
-    - apply nullable_bridge. induction r.
-      + inv H.
-      + inv H.
-      + simpl. destruct (Sigma_dec t a).
-        * simpl. reflexivity.
+    generalize dependent s. induction r; intros s H.
+    - inv H.
+    - inv H.
+    - destruct s.
+      + destruct (Sigma_dec t a).
+        * rewrite e. simpl. rewrite <- Sigma_dec_refl. apply MEmpty.
         * inv H. contradiction.
-      + inv H. apply singleton_app in H1.
-        destruct H1; destruct H; rewrite H in H3; rewrite H0 in H4.
-        * apply nullable_bridge in H4. apply IHr1 in H3.
-          simpl. rewrite <- H3. rewrite <- H4.
-          destruct (andb (nullable (nullify r1)) (nullable (derivative a r2))); simpl; reflexivity.
-        * apply nullable_bridge in H3. apply IHr2 in H4.
-          simpl. rewrite mute_nullify. rewrite <- H3. rewrite <- H4.
-          destruct (andb (nullable (derivative a r1)) (nullable r2)); simpl; reflexivity.
       + inv H.
-        * simpl. apply IHr1 in H2. rewrite <- H2.
-          destruct (nullable (derivative a r2)); simpl; reflexivity.
-        * simpl. apply IHr2 in H1. rewrite <- H1.
-          destruct (nullable (derivative a r1)); simpl; reflexivity.
-      + inv H.
-        * 
-        * rewrite H0 in H2. inv H2. inv H1.
-    - 
+    - simpl. destruct(nullable r1) eqn:E.
+      + inv H. destruct s1.
+        * apply MUnionR. apply IHr2. rewrite <- H1. simpl. apply H4.
+        * apply MUnionL. simpl in H1. injection H1. intros Happ Hchar.
+          rewrite <- Happ. rewrite Hchar in H3. apply IHr1 in H3.
+          apply MApp.
+          -- apply H3.
+          -- apply H4.
+      + inv H. destruct s1.
+        * apply nullable_bridge in H3. rewrite E in H3. discriminate.
+        * simpl in H1. injection H1. intros Happ Hchar.
+          rewrite <- Happ. rewrite Hchar in H3. apply IHr1 in H3.
+          apply MApp.
+          -- apply H3.
+          -- apply H4.
+    - simpl. inv H.
+      + apply IHr1 in H2. apply MUnionL. apply H2.
+      + apply IHr2 in H1. apply MUnionR. apply H1.
+    - simpl. inv H.
+      + destruct s1.
+        * contradiction.
+        * simpl in H0. injection H0. intros Happ Hchar.
+          rewrite <- Happ. rewrite Hchar in H3. apply IHr in H3.
+          apply MApp.
+          -- apply H3.
+          -- apply H4.
   }
   {
-    admit.
+    generalize dependent s. induction r; intros s H.
+    - inv H.
+    - inv H.
+    - simpl in H. destruct (Sigma_dec t a); inv H. apply MChar.
+    - simpl in H. destruct (nullable r1) eqn:E.
+      + inv H.
+        * inv H2. replace (a :: s1 ++ s2) with ((a :: s1) ++ s2).
+          apply MApp.
+          -- apply IHr1. apply H3.
+          -- apply H4.
+          -- reflexivity.
+        * symmetry in E. apply nullable_bridge in E. rewrite <- nil_left with (s := (a :: s)).
+          apply MApp.
+          -- apply E.
+          -- apply IHr2. apply H1.
+      + inv H.
+        * replace (a :: s1 ++ s2) with ((a :: s1) ++ s2).
+          apply MApp.
+          -- apply IHr1. apply H3.
+          -- apply H4.
+          -- reflexivity.
+    - inv H.
+      + apply MUnionL. apply IHr1. apply H2.
+      + apply MUnionR. apply IHr2. apply H1.
+    - simpl in H. inv H. replace (a :: s1 ++ s2) with ((a :: s1) ++ s2).
+      + apply MStarApp.
+        * unfold not. intros H. discriminate.
+        * apply IHr. apply H3.
+        * apply H4.
+      + reflexivity.
   }
-Admitted.
+Qed.
 
 Theorem match_iff_matchb : forall(s : String) (r : regex),
     true = exp_matchb s r <-> exp_match s r.
