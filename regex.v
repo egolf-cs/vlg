@@ -38,10 +38,14 @@ Inductive exp_match : String -> regex -> Prop :=
                 (H2 : exp_match s2 re2) :
                 exp_match s2 (Union re1 re2)
   | MStar0 re : exp_match [] (Star re)
-  (* | MStarChar a re
+  (* MStarChar was added because I couldn't prove it from the other rules, 
+     but it was necessary for a proof and it is true on pen and paper *)
+  | MStarChar a re
                  (H1 : exp_match [a] re) :
-      exp_match [a] (Star re) *)
+      exp_match [a] (Star re)
+  (* Had to restrict this casae with H0 so that it didn't interfere with MStarChar *)
   | MStarApp s1 s2 re
+                 (H0 : length(s1 ++ s2) > 1)
                  (H1 : exp_match s1 re)
                  (H2 : exp_match s2 (Star re)) :
       exp_match (s1 ++ s2) (Star re).
@@ -137,70 +141,6 @@ Proof.
     + simpl. reflexivity.
 Qed.
 
-Lemma foo0 : forall(s : String) (r : regex),
-    exp_match s r -> exp_match s (Star r).
-Proof.
-  intros s. induction s; intros r H.
-  - apply MStar0.
-  - rewrite <- nil_right with (s := a::s). apply MStarApp.
-    + apply H.
-    + apply MStar0.
-Qed.
-  
-Lemma foo1 : forall(a : Sigma) (r1 r2 : regex),
-    exp_match [a] (Star (App r1 r2)) ->
-    (exp_match [a] r1) \/
-    (exp_match [a] r2).
-Proof.
-Admitted.
-
-Lemma foo2 : forall(a : Sigma) (r1 r2 : regex),
-    exp_match [a] (Star (App r1 r2)) ->
-    (exp_match [a] r1 -> exp_match [] r2) /\
-    (exp_match [a] r2 -> exp_match [] r1).
-Proof.
-  intros a r1 r2 H. split; intros H1.
-  - inv H.
-    apply singleton_app in H0. destruct H0; destruct H.
-    + rewrite H in H3. inv H3. inv H4
-    + rewrite H in H3. Admitted.
-
-Theorem singleton_star_app : forall(a : Sigma) (r1 r2 : regex),
-    exp_match [a] (Star (App r1 r2)) ->
-    (exp_match [a] (Star r1) /\ exp_match [] r2) \/
-    (exp_match [a] (Star r2) /\ exp_match [] r1).
-Proof.
-  intros a r1 r2 H.
-  assert(H1 := H).
-  apply foo1 in H. apply foo2 in H1.
-  destruct H1. destruct H; assert(H2 := H); apply foo0 in H2.
-  - left. split.
-    + apply H2.
-    + apply H0. apply H.
-  - right. split.
-    + apply H2.
-    + apply H1. apply H.
-Qed.
-
-Lemma singleton_star : forall(a : Sigma) (r : regex),
-    exp_match [a] (Star r) -> exp_match [a] r.
-Proof.
-  intros a r H. induction r.
-  - inv H. inv H2.
-  - inv H. apply singleton_app in H1. destruct H1; destruct H.
-    + rewrite H in H2. inv H2.
-    + apply Star_empty_empty in H3. rewrite H0 in H3. discriminate.
-  - inv H. apply singleton_app in H1. destruct H1; destruct H.
-    + rewrite H in H2. rewrite H. rewrite H0. simpl. apply H2.
-    + rewrite H0 in H3. inv H3. inv H2.
-  - apply singleton_star_app in H. destruct H; destruct H.
-    + rewrite <- nil_right with (s := [a]). apply MApp.
-      * apply IHr1. apply H.
-      * apply H0.
-    + rewrite <- nil_left with (s := [a]). apply MApp.
-      * apply H0.
-      * apply IHr2. apply H.
-  - Admitted.
                      
 Theorem der_matchb : forall(a : Sigma) (s : String) (r : regex),
     true = exp_matchb (a::s) r <-> true = exp_matchb s (derivative a r).
@@ -235,9 +175,9 @@ Proof.
           destruct (nullable (derivative a r2)); simpl; reflexivity.
         * simpl. apply IHr2 in H1. rewrite <- H1.
           destruct (nullable (derivative a r1)); simpl; reflexivity.
-      + 
-
-        simpl. apply singleton_star in H. apply IHr in H. rewrite <- H. reflexivity.
+      + inv H.
+        * 
+        * rewrite H0 in H2. inv H2. inv H1.
     - 
   }
   {
