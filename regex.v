@@ -3,15 +3,13 @@ Import ListNotations.
 Require Import Nat.
 Require Import Coq.Program.Wf.
 Require Import Coq.omega.Omega.
+Require Import Ascii.
 
 Ltac inv H := inversion H; subst; clear H.
 
 (* Borrowed these from another paper, actually about regex derivatives *)
-Variable Sigma : Type.
-Variable x : Sigma.
-Variable y : Sigma.
-Variable z : Sigma.
-Variable Sigma_dec : forall (c c': Sigma), {c = c'} + {c <> c'}.
+Definition Sigma := ascii.
+Definition Sigma_dec := Ascii.ascii_dec.
 Axiom Sigma_dec_refl : forall(T : Type) (p1 p2 : T) (a : Sigma), p1 = if Sigma_dec a a then p1 else p2.
 Definition String : Type := list Sigma.
 
@@ -38,6 +36,26 @@ Inductive exp_match : String -> regex -> Prop :=
                 (H2 : exp_match s2 re2) :
                 exp_match s2 (Union re1 re2)
   | MStar0 re : exp_match [] (Star re)
+  | MStarApp s1 s2 re
+                 (H1 : exp_match s1 re)
+                 (H2 : exp_match s2 (Star re)) :
+      exp_match (s1 ++ s2) (Star re).
+
+(*
+Inductive exp_match : String -> regex -> Prop :=
+  | MEmpty : exp_match [] EmptyStr
+  | MChar x : exp_match [x] (Char x)
+  | MApp s1 re1 s2 re2
+             (H1 : exp_match s1 re1)
+             (H2 : exp_match s2 re2) :
+             exp_match (s1 ++ s2) (App re1 re2)
+  | MUnionL s1 re1 re2
+                (H1 : exp_match s1 re1) :
+                exp_match s1 (Union re1 re2)
+  | MUnionR re1 s2 re2
+                (H2 : exp_match s2 re2) :
+                exp_match s2 (Union re1 re2)
+  | MStar0 re : exp_match [] (Star re)
                           
   (* Had to restrict this case with H0 to avoid infinite regress.
    Both s1 and s2 must "contribute" to s1 ++ s2.
@@ -48,7 +66,7 @@ Inductive exp_match : String -> regex -> Prop :=
                  (H0 : s1 <> [])
                  (H1 : exp_match s1 re)
                  (H2 : exp_match s2 (Star re)) :
-      exp_match (s1 ++ s2) (Star re).
+      exp_match (s1 ++ s2) (Star re).*)
 
 Fixpoint nullable (r : regex) : bool:=
   match r with
@@ -127,6 +145,25 @@ Proof.
     + simpl. reflexivity.
 Qed.
 
+Lemma star_concat :
+  forall s r',
+    exp_match s (Star r')
+    -> (exists xss : list (list Sigma),
+           s = concat xss
+           /\ (forall xs,
+                  In xs xss
+                  -> exp_match xs r')).
+Proof.
+  intros s r' hm.
+  remember (Star r') as r. generalize dependent r'. 
+  induction hm; intros r' heq; inv heq.
+  - exists []; split; auto.
+    intros xs hi; inv hi.
+  - destruct (IHhm2 r') as (xss' & heq & hall); subst; auto.
+    exists (s1 :: xss'); split; auto.
+    intros xs hi.
+    destruct hi as [hh| ht]; subst; auto.
+Qed.
                      
 Theorem der_matchb : forall(a : Sigma) (s : String) (r : regex),
     true = exp_matchb (a::s) r <-> true = exp_matchb s (derivative a r).
@@ -167,14 +204,16 @@ Proof.
     - simpl. inv H.
       + apply IHr1 in H2. apply MUnionL. apply H2.
       + apply IHr2 in H1. apply MUnionR. apply H1.
-    - simpl. inv H.
+    - admit.
+      (*
+      simpl. inv H.
       + destruct s1.
         * contradiction.
         * simpl in H0. injection H0. intros Happ Hchar.
           rewrite <- Happ. rewrite Hchar in H3. apply IHr in H3.
           apply MApp.
           -- apply H3.
-          -- apply H4.
+          -- apply H4.*)
   }
   {
     generalize dependent s. induction r; intros s H.
@@ -203,12 +242,11 @@ Proof.
       + apply MUnionR. apply IHr2. apply H1.
     - simpl in H. inv H. replace (a :: s1 ++ s2) with ((a :: s1) ++ s2).
       + apply MStarApp.
-        * unfold not. intros H. discriminate.
         * apply IHr. apply H3.
         * apply H4.
       + reflexivity.
   }
-Qed.
+Admitted.
 
 Theorem match_iff_matchb : forall(s : String) (r : regex),
     true = exp_matchb s r <-> exp_match s r.
@@ -225,4 +263,3 @@ Proof.
     - apply der_match in H. apply der_matchb. apply IHs in H. apply H.
   }
 Qed.
-
