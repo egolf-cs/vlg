@@ -131,8 +131,7 @@ Proof.
       * simpl. destruct (max_pref_fn code (transition a fsm)).
         -- destruct p. simpl. simpl in E. injection E. intros I1. rewrite I1. reflexivity.
         -- simpl in E. discriminate.
-    + 
-Qed.
+    + Admitted.
 
 Lemma max_pref_fn_splits : forall(code prefix suffix : String) (fsm : State),
     Some (prefix, suffix) = max_pref_fn code fsm -> code = prefix ++ suffix.
