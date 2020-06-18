@@ -26,22 +26,18 @@ Definition eLexemes : Type := list eToken.
 
    The additional elements in the triple might be helpful for correctness.
 
-   0. An error will be thrown <-> the code could not be lexed entirely according to the rules
+   0. None will be returned iff atleast one of the following is occurs:
+      a. No rules are provided
+      b. No maximal prefix exists
+      c. The maximal prefix is empty
    In all cases where an error is not thrown:
    1. exp_match pref re
    2. the concatention of all pre is equal to code
    3. If suff = x ++ y, then pre ++ x does not match any of the regular expressions from rules
  *)
-
-(*********************************************
-*
-*
-*   Alternative formulation, more modular.
-*
-*
-*********************************************)
 Definition State : Type := regex.
 Definition transition : Sigma -> State -> State := derivative.
+Definition accepts : String -> State -> bool := exp_matchb.
 Definition accepting : State -> bool:= nullable.
 Definition init_state (r : regex) : State := r.
 Definition absorbing_state := EmptySet.
@@ -49,6 +45,26 @@ Definition absorbing_state := EmptySet.
 Definition eRule : Type := String * regex * State.
 Definition eeToken : Type := eRule * String * String.
 Definition eeLexemes : Type := list eeToken.
+
+Inductive is_prefix : String -> String -> Prop :=
+  | pref_def p s
+         (H1 : exists q, p ++ q = s) :
+      is_prefix p s.
+
+Notation "p ++_= s" := (is_prefix p s) (at level 80).
+
+(* Need to replace exp_match with something more general to States *)
+Inductive max_pref : String -> State -> option String -> Prop :=
+| MP0 (s : String) (r : State)
+         (H1 : forall cand, ~(cand ++_= s) \/ ~(exp_match cand r)) :
+    max_pref s r None
+| MP1 (s : String) (r : State) (p : String)
+      (H1 : p ++_= s)
+      (H2 : exp_match p r)
+      (H3 : forall(cand : String), cand ++_= s
+                              -> ((length cand) <= (length p)) \/ ~(exp_match cand r)) :
+    max_pref s r (Some p).
+
 
 Fixpoint max_pref_fn (s : String) (state : State) : option (String * String):=
   match s with
@@ -59,14 +75,64 @@ Fixpoint max_pref_fn (s : String) (state : State) : option (String * String):=
       (* in a regex approach, transition := derivative *)
       state' := transition a state in
     let
-      (* if (p, s'') is a prefix, suffix pair for s', then (a::p, s'') is a pair for a::s' *)
       mpxs := max_pref_fn s' state' in
     
     match mpxs with
     | None => if (accepting state') then Some ([a], s') else None
-    | Some (p, s'') => Some (a :: p, s'')
+    | Some (p, q) => Some (a :: p, q)
     end
   end.
+
+Definition prefix_from_pair (x : option (String * String)) : option String :=
+  match x with
+  | None => None
+  | Some (p, q) => Some p
+  end.
+
+(* It looks like I'm starting to lose some of the modularity. Aside from using exp_match
+   directly in the spec instead of something equivalent for States (instead of regexes),
+   I also am relying on unfolding accepting as nullable and applying nullable_bridge in this
+   proof. I knew at some point I would need to plug the concrete implementation into the lexer,
+   but this might not be close enough to the surface to be doing it here. *)
+Lemma spec_eq_fn : forall(code : String) (fsm : State),
+    max_pref code fsm (prefix_from_pair (max_pref_fn code fsm)).
+Proof.
+  induction code; intros fsm.
+  - simpl. destruct (accepting fsm) eqn:E0.
+    + simpl. apply MP1.
+      * apply pref_def. exists []. reflexivity.
+      * unfold accepting in E0. apply nullable_bridge. symmetry. apply E0.
+      * intros cand H. destruct cand.
+        -- left. simpl. omega.
+        -- inv H. destruct H1. discriminate.
+    + simpl. apply MP0. induction cand.
+      * right. unfold not. intros C. apply nullable_bridge in C.
+        unfold accepting in E0. rewrite E0 in C. discriminate.
+      * left. unfold not. intros C. inv C. destruct H1. discriminate.
+  - assert (A : max_pref code (transition a fsm)
+                         (prefix_from_pair (max_pref_fn code (transition a fsm)))).
+    { apply IHcode. }
+    destruct (prefix_from_pair (max_pref_fn code (transition a fsm))) eqn:E.
+    + replace (prefix_from_pair (max_pref_fn (a :: code) fsm)) with (Some (a :: s)).
+      * apply MP1.
+        -- inv A. inv H2. destruct H1. apply pref_def.
+           exists x. simpl. rewrite H. reflexivity.
+        -- inv A. apply match_iff_matchb. simpl. apply match_iff_matchb in H3. apply H3.
+        -- intros cand H. inv A. destruct cand.
+           ++ left. simpl. omega.
+           ++ inv H. destruct H1. injection H. intros I1 I2. rewrite I2.
+              simpl. specialize (H5 cand). assert (A1 : cand ++_= code).
+              { apply pref_def. exists x. apply I1. }
+              apply H5 in A1. destruct A1.
+              ** left. omega.
+              ** right. unfold not. intros C. unfold not in H0. destruct H0.
+                 apply match_iff_matchb. apply match_iff_matchb in C.
+                 simpl in C. unfold transition. apply C.
+      * simpl. destruct (max_pref_fn code (transition a fsm)).
+        -- destruct p. simpl. simpl in E. injection E. intros I1. rewrite I1. reflexivity.
+        -- simpl in E. discriminate.
+    + 
+Qed.
 
 Lemma max_pref_fn_splits : forall(code prefix suffix : String) (fsm : State),
     Some (prefix, suffix) = max_pref_fn code fsm -> code = prefix ++ suffix.
@@ -102,13 +168,13 @@ Qed.
 
 Definition extract_fsm_for_max (code : String) (eru : eRule) :=
   match eru with
-    (_, _, fsm) => (Some eru, max_pref_fn code fsm)
+    (_, _, fsm) => (eru, max_pref_fn code fsm)
   end.
 
 Definition max_prefs (code : String) (erules : list eRule) :=
     map (extract_fsm_for_max code) erules.
 
-Definition longer_pref (apref1 apref2 : (option eRule) * (option (String * String))) :=
+Definition longer_pref (apref1 apref2 : eRule * (option (String * String))) :=
   match apref1, apref2 with
   | (_, None), (_, _) => apref2
   | (_, _), (_, None) => apref1
@@ -116,9 +182,9 @@ Definition longer_pref (apref1 apref2 : (option eRule) * (option (String * Strin
                                          then apref2 else apref1
   end.
 
-Fixpoint max_of_prefs (mprefs : list ((option eRule) * (option (String * String)))) :=
+Fixpoint max_of_prefs (mprefs : list (eRule * (option (String * String)))) :=
   match mprefs with
-  | [] => (@None eRule, @None (String * String))
+  | [] => (([], EmptySet, EmptySet), @None (String * String))
   | p :: ps => longer_pref p (max_of_prefs ps)
   end.
 
@@ -127,18 +193,12 @@ Lemma max_first_or_rest : forall ys x y,
     x = max_of_prefs (y :: ys) -> x = y \/ x = max_of_prefs ys.
 Proof.
   intros ys x y H. simpl in H. destruct y.
-  destruct o; destruct o0; unfold longer_pref in H; destruct (max_of_prefs ys).  
-  - destruct o0.
-    + destruct p. destruct p0. destruct (length s1 <? length s).
+  destruct o; unfold longer_pref in H; destruct (max_of_prefs ys).  
+  - destruct p. destruct o.
+    + destruct p. destruct (length s1 <? length s).
       * right. apply H.
       * left. apply H.
-    + destruct p. left. apply H.
-  - right. apply H.
-  - destruct o0.
-    + destruct p. destruct p0. destruct (length s1 <? length s).
-      * right. apply H.
-      * left. apply H.
-    + destruct p. left. apply H.
+    + left. apply H.
   - right. apply H.
 Qed.
     
@@ -163,8 +223,7 @@ Program Fixpoint lex (rules : list Rule) (code : String)
           match mpref with
           | (_, None) => None (* This state suggests malformed code *)
           | (_, Some ([], _)) => None (* Longest match empty-> non-terminating-> malformed code *)
-          | (None, _) => None (* This state shouldn't be reachable *)
-          | (Some eru, Some (prefix, suffix)) => match (lex rules suffix) with
+          | (eru, Some (prefix, suffix)) => match (lex rules suffix) with
                                                 | None => None
                                                 | Some lexemes =>
                                                   Some ( (eru, prefix, suffix) :: lexemes )
@@ -174,13 +233,13 @@ Program Fixpoint lex (rules : list Rule) (code : String)
   end.
 Next Obligation.
   assert (A0 : prefix <> []).
-  { unfold not. intros C. rewrite C in H1. specialize (H1 (Some eru)). specialize (H1 suffix).
+  { unfold not. intros C. rewrite C in H1. specialize (H1 (l, r0, r)). specialize (H1 suffix).
     contradiction. }
   assert (A2 : exists(fsm : State), Some (prefix, suffix) = max_pref_fn code fsm).
   { (* this should follow from Heq_mpref *)
     induction rules. contradiction.
     simpl in Heq_mpref. apply max_first_or_rest in Heq_mpref. destruct Heq_mpref.
-    - destruct a in H2. exists(init_state r). injection H2. intros I1 I2. apply I1.
+    - destruct a in H2. exists(init_state r1). injection H2. intros I1 I2 I3 I4. apply I1.
     - apply IHrules.
       + destruct rules.
         * simpl in H2. discriminate.
