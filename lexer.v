@@ -15,6 +15,9 @@ Definition Rule : Type := String * regex.
 Definition Token : Type := String * String.
 Definition eToken : Type := Rule * String * String.
 Definition eLexemes : Type := list eToken.
+(* Look into Coq record types *)
+
+
 (* 
    The lexer will accept a list of pairs and a string.
    Each element in this list of pairs will contain a regex and its corresponding label/action.
@@ -26,14 +29,16 @@ Definition eLexemes : Type := list eToken.
 
    The additional elements in the triple might be helpful for correctness.
 
-   0. None will be returned iff atleast one of the following is occurs:
+   0. None will be returned iff atleast one of the following occurs:
       a. No rules are provided
       b. No maximal prefix exists
       c. The maximal prefix is empty
+
    In all cases where an error is not thrown:
    1. forall s, exp_match s re <-> accepting s fsm
-   2. exp_match pref re OR accepting pref fsm (equivalent, but which?)
    3. the concatention of all pre is equal to code
+
+   2. exp_match pref re OR accepting pref fsm (equivalent, but which?)
    4. If suff = x ++ y, then pre ++ x does not match any of the regular expressions from rules
  *)
 Definition State : Type := regex.
@@ -46,27 +51,6 @@ Definition absorbing_state := EmptySet.
 Definition eRule : Type := String * regex * State.
 Definition eeToken : Type := eRule * String * String.
 Definition eeLexemes : Type := list eeToken.
-
-Inductive is_prefix : String -> String -> Prop :=
-  | pref_def p s
-         (H1 : exists q, p ++ q = s) :
-      is_prefix p s.
-
-Notation "p ++_= s" := (is_prefix p s) (at level 80).
-
-(* Need to replace exp_match with something more general to States *)
-(* maybe we can pass the regex AND the State here and add a hypothesis about their equivalence *)
-Inductive max_pref : String -> State -> option (String * String) -> Prop :=
-| MP0 (s : String) (r : State)
-         (H1 : forall cand, ~(cand ++_= s) \/ ~(exp_match cand r)) :
-    max_pref s r None
-| MP1 (s : String) (r : State) (p q : String)
-      (H0 : p ++ q = s)
-      (H1 : p ++_= s)
-      (H2 : exp_match p r)
-      (H3 : forall(cand : String), cand ++_= s
-                              -> ((length cand) <= (length p)) \/ ~(exp_match cand r)) :
-    max_pref s r (Some (p, q)).
 
 
 Fixpoint max_pref_fn (s : String) (state : State) : option (String * String):=
@@ -120,152 +104,6 @@ Proof.
     + contradiction.
     + simpl. omega.
   - symmetry. apply app_length.
-Qed.
-
-(* It looks like I'm starting to lose some of the modularity. Aside from using exp_match
-   directly in the spec instead of something equivalent for States (instead of regexes),
-   I am also relying on unfolding accepting as nullable and applying nullable_bridge in this
-   proof. I knew at some point I would need to plug the concrete implementation into the lexer,
-   but this might not be close enough to the surface to be doing it here. *)
-Theorem max_pref_spec_eq_fn : forall(code : String) (fsm : State),
-    max_pref code fsm (max_pref_fn code fsm).
-Proof.
-  induction code; intros fsm.
-  (* base case pretty trivial *)
-  - simpl. destruct (accepting fsm) eqn:E0.
-    + simpl. apply MP1.
-      * reflexivity.
-      * apply pref_def. exists []. reflexivity.
-      * unfold accepting in E0. apply nullable_bridge. symmetry. apply E0.
-      * intros cand H. destruct cand.
-        -- left. simpl. omega.
-        -- inv H. destruct H1. discriminate.
-    + simpl. apply MP0. induction cand.
-      * right. unfold not. intros C. apply nullable_bridge in C.
-        unfold accepting in E0. rewrite E0 in C. discriminate.
-      * left. unfold not. intros C. inv C. destruct H1. discriminate.
-  (* inductive case ~~slightly~~ more challenging *)
-  - specialize (IHcode (transition a fsm)). (* IH only useful when used this way *)
-    destruct (max_pref_fn code (transition a fsm)) eqn:E.
-    (* if code has a prefix, the proof is pretty straight forward. 
-       Add a to the front of that prefix, apply MP1, and do some case analysis. *)
-    + destruct p.
-      replace ((max_pref_fn (a :: code) fsm)) with (Some ((a :: s), s0)).
-      * apply MP1.
-        -- symmetry in E.  apply max_pref_fn_splits in E. rewrite E. reflexivity.
-        -- inv IHcode. inv H3. destruct H1. apply pref_def.
-           exists x. simpl. rewrite H. reflexivity.
-        -- inv IHcode. apply match_iff_matchb. simpl. apply match_iff_matchb in H5. apply H5.
-        -- intros cand H. inv IHcode. destruct cand.
-           ++ left. simpl. omega.
-           ++ inv H. destruct H1. injection H. intros I1 I2. rewrite I2.
-              simpl. specialize (H7 cand). assert (A1 : cand ++_= s ++ s0).
-              { apply pref_def. exists x. apply I1. }
-              apply H7 in A1. destruct A1.
-              ** left. omega.
-              ** right. unfold not. intros C. unfold not in H0. destruct H0.
-                 apply match_iff_matchb. apply match_iff_matchb in C.
-                 simpl in C. unfold transition. apply C.
-      * simpl. destruct (max_pref_fn code (transition a fsm)).
-        -- destruct p. simpl. simpl in E.
-           injection E. intros I1 I2. rewrite I1. rewrite I2. reflexivity.
-        -- simpl in E. discriminate.
-    (* 
-       This case on the other hand is more complicated because even if code has no prefix,
-       there are still two possible prefixes for a :: code (as well as maybe no prefix). 
-       We show that these possibilities are exhaustive and do case analysis on them. 
-       Within these cases the proofs are pretty straightforward, just lots of case analysis.       
-     *)
-    + assert (A1 : 
-                max_pref_fn (a :: code) fsm = None
-                \/ max_pref_fn (a :: code) fsm = Some ([], (a :: code))
-                \/ max_pref_fn (a :: code) fsm = Some ([a], code)
-             ).
-      {
-        destruct code. 
-        - simpl in E. simpl. destruct (accepting (transition a fsm)). discriminate.
-          destruct (accepting fsm).
-          + right. left. reflexivity.
-          + left. reflexivity.
-        - simpl in E. simpl.
-          destruct (max_pref_fn code (transition s (transition a fsm))) eqn:E1.
-          + destruct p. discriminate.
-          + destruct (accepting (transition s (transition a fsm))) eqn:E2. discriminate.
-            * destruct (accepting (transition a fsm)) eqn:E3.
-              -- discriminate.
-              -- inv IHcode. destruct (accepting fsm).
-                 ++ right. left. reflexivity.
-                 ++ left. reflexivity.
-      }
-      destruct A1.
-      {
-        rewrite H. simpl in H.
-        assert (A2 : accepting (transition a fsm) = false /\ accepting fsm = false).
-        {
-          rewrite E in H.
-          destruct (accepting (transition a fsm)); destruct (accepting fsm);
-            try (discriminate); try (split; reflexivity).
-        }
-        destruct A2. clear H. inv IHcode. apply MP0. destruct cand.
-        - right. unfold not. intros C.
-          apply nullable_bridge in C. unfold accepting in H1. rewrite H1 in C. discriminate.
-        - specialize (H2 cand). destruct H2.
-          + left. unfold not. intros C. unfold not in H. destruct H.
-            inv C. destruct H2. apply pref_def. exists x. injection H.
-            intros I1 I2. apply I1.
-          + destruct (Sigma_dec a s).
-            * right. unfold not. intros C. unfold not in H. destruct H.
-              apply match_iff_matchb. apply match_iff_matchb in C.
-              unfold transition. unfold transition in C. simpl. simpl in C.
-              rewrite e. apply C.
-            * left. unfold not. intros C. inv C. destruct H2.
-              injection H2. intros I1 I2. rewrite I2 in n. contradiction.
-      }
-      destruct H.
-      {
-        rewrite H. simpl in H.
-        assert (A2 : accepting (transition a fsm) = false /\ accepting fsm = true).
-        {
-          rewrite E in H.
-          destruct (accepting (transition a fsm)); destruct (accepting fsm);
-            try (discriminate); try (split; reflexivity).
-        }
-        destruct A2. clear H. inv IHcode. apply MP1.
-        - reflexivity.
-        - apply pref_def. exists (a :: code). reflexivity.
-        - apply match_iff_matchb. simpl. unfold accepting in H1. symmetry. apply H1.
-        - intros cand H. destruct cand.
-          + left. omega.
-          + right. inv H. destruct H3. injection H. intros I1 I2.
-            specialize (H2 cand). destruct H2.
-            * unfold not in H2. destruct H2. apply pref_def. exists x. apply I1.
-            * rewrite I2. unfold not. intros C. unfold not in H2. destruct H2.
-              apply match_iff_matchb. apply match_iff_matchb in C. simpl in C. apply C.
-      }
-      {
-        rewrite H. simpl in H.
-        assert (A2 :  accepting (transition a fsm) = true).
-        {
-          rewrite E in H.
-          destruct (accepting (transition a fsm)); destruct (accepting fsm);
-            try (discriminate); try (split; reflexivity).
-        }
-        clear H. inv IHcode. apply MP1.
-        - reflexivity.
-        - apply pref_def. exists code. reflexivity.
-        - apply match_iff_matchb. simpl. unfold accepting in A2. unfold transition in A2.
-          symmetry. apply A2.
-        - intros cand H. destruct cand.
-          + left. simpl. omega.
-          + destruct cand.
-            * left. simpl. omega.
-            * right. inv H. destruct H0. injection H. intros I1 I2.
-              specialize (H1 (s0 :: cand)). destruct H1.
-              -- unfold not in H0. destruct H0. apply pref_def. exists x. inv H. simpl. apply H2.
-              -- unfold not. intros C. unfold not in H0. destruct H0.
-                 apply match_iff_matchb. apply match_iff_matchb in C.
-                 simpl in C. simpl. rewrite <- I2. apply C.
-      }
 Qed.
         
 Definition extract_fsm_for_max (code : String) (eru : eRule) :=
@@ -354,6 +192,374 @@ Next Obligation.
   - apply H2.
 Qed.
   
-                 
+(************************************
+*
+*        Proof of correctness
+*
+************************************)                 
   
-  
+
+(* This doesn't ~need~ to be inductive *)
+Inductive is_prefix : String -> String -> Prop :=
+  | pref_def p s
+         (H1 : exists q, p ++ q = s) :
+      is_prefix p s.
+
+Notation "p ++_= s" := (is_prefix p s) (at level 80).
+
+Lemma app_head_prefix : forall(xs ys : String),
+    xs ++_= xs ++ ys.
+Proof.
+  intros xs ys. apply pref_def. exists ys. reflexivity.
+Qed.
+
+Lemma cons_prefix : forall(x y : Sigma) (xs ys : String),
+    x :: xs ++_= y :: ys <-> x = y /\ xs ++_= ys.
+Proof.
+  intros x y xs ys. split; intros H.
+  {
+    inv H. destruct H1.
+    injection H. intros I1 I2. split; subst.
+    - reflexivity.
+    - apply app_head_prefix.
+  }
+  {
+    destruct H. inv H0. destruct H1.
+    apply pref_def. exists x. rewrite <- H. reflexivity.
+  }
+Qed.
+
+Lemma eq_len_eq_pref : forall(x s p : String),
+  length p = length s
+  -> s ++_= x
+  -> p ++_= x
+  -> s = p.
+Proof.
+  induction x; intros s p Heq Hs Hp .
+  - inv Hs. inv Hp. destruct H0. destruct H1.
+    apply app_eq_nil in H. destruct H.
+    apply app_eq_nil in H0. destruct H0.
+    subst. reflexivity.
+  - destruct s; destruct p.
+    + reflexivity.
+    + simpl in Heq. discriminate.
+    + simpl in Heq. discriminate.
+    + apply cons_prefix in Hs. apply cons_prefix in Hp.
+      destruct Hs. destruct Hp. subst.
+      assert (length p = length s0).
+      { simpl in Heq. omega. }
+      apply IHx in H.
+      * rewrite H. reflexivity.
+      * apply H0.
+      * apply H2.
+Qed.
+
+
+(* Need to replace exp_match with something more general to States *)
+(* maybe we can pass the regex AND the State here and add a hypothesis about their equivalence *)
+Inductive no_max_pref : String -> State -> Prop :=
+| MP0 (s : String) (r : State)
+         (H1 : forall cand, cand ++_= s -> ~(exp_match cand r)) :
+    no_max_pref s r.
+
+Inductive max_pref : String -> State -> String -> Prop :=
+| MP1 (s : String) (r : State) (p : String)
+      (H1 : p ++_= s)
+      (H2 : exp_match p r)
+      (H3 : forall(cand : String), cand ++_= s
+                              -> ((length cand) <= (length p)) \/ ~(exp_match cand r)) :
+    max_pref s r p.
+
+Lemma false_not_true : forall(b : bool),
+    b = false <-> not(b = true).
+Proof.
+  intros b. split.
+  - intros H. destruct b.
+    + discriminate.
+    + unfold not. intros C. discriminate.
+  - intros H. destruct b.
+    + contradiction.
+    + reflexivity.
+Qed.
+
+Theorem max_pref_correct_None : forall(code : String) (fsm : State),
+    no_max_pref code fsm <-> None = max_pref_fn code fsm.
+Proof.
+  intros code fsm. split.
+  {
+    generalize dependent fsm; induction code; intros fsm H.
+    - simpl. inv H. specialize (H1 []). assert (A : [] ++_= []).
+      { apply pref_def. exists []. reflexivity. }
+      apply H1 in A. clear H1. destruct (accepting fsm) eqn:E.
+      + exfalso. unfold not in A. destruct A. apply nullable_bridge.
+        symmetry. unfold accepting in E. apply E.
+      + reflexivity.
+    - specialize (IHcode (transition a fsm)). inv H.
+      assert (A0 : no_max_pref code (transition a fsm)).
+      {
+        apply MP0. intros cand H. specialize (H1 (a :: cand)).
+        assert (A1 : a :: cand ++_= a :: code).
+        { apply pref_def. inv H. destruct H0. exists x. rewrite <- H. reflexivity. }
+        apply H1 in A1. unfold not. intros C. unfold not in A1. destruct A1.
+        apply match_iff_matchb. apply match_iff_matchb in C. simpl. unfold transition in C.
+        apply C.
+      }
+      apply IHcode in A0.
+      simpl.
+      assert (A1 : accepting (transition a fsm) = false).
+      { specialize (H1 [a]). assert (A2 : [a] ++_= a :: code).
+        { apply pref_def. exists code. reflexivity. }
+        apply H1 in A2. apply false_not_true. unfold not. intros C.
+        unfold not in A2. destruct A2. apply match_iff_matchb. simpl.
+        unfold accepting in C. unfold transition in C. symmetry. apply C.
+      }
+      assert (A2 : accepting fsm = false).
+      {
+        specialize (H1 []). assert (A3 : [] ++_= a :: code).
+        { apply pref_def. exists (a :: code). reflexivity. }
+        apply H1 in A3. apply false_not_true. unfold not. intros C.
+        unfold not in A3. destruct A3. apply nullable_bridge. unfold accepting in C.
+        symmetry. apply C.
+      } 
+      rewrite <- A0. rewrite A1. rewrite A2. reflexivity.
+  }
+  {
+    generalize dependent fsm; induction code; intros fsm H.
+    - apply MP0. intros cand H0. simpl in H.
+      assert (A0 : accepting fsm = false).
+      {
+        destruct (accepting fsm).
+        - discriminate.
+        - reflexivity.
+      }
+      assert (A1 : cand = []).
+      {
+        destruct cand.
+        - reflexivity.
+        - inv H0. destruct H1. discriminate.
+      } 
+      unfold not. intros C. rewrite A1 in C. apply nullable_bridge in C.
+      unfold accepting in A0. rewrite A0 in C. discriminate.
+    - specialize (IHcode (transition a fsm)).
+      apply MP0. intros cand H0. simpl in H. destruct (max_pref_fn code (transition a fsm)).
+      + destruct p. discriminate.
+      + assert (A0 : accepting (transition a fsm) = false).
+        {
+          destruct (accepting (transition a fsm)).
+          - discriminate.
+          - reflexivity.
+        }
+        assert (A1 : accepting fsm = false).
+        {
+          destruct (accepting fsm).
+          - rewrite A0 in H. discriminate.
+          - reflexivity.
+        }
+        destruct cand.
+        * intros C. apply nullable_bridge in C. unfold accepting in A1.
+          rewrite A1 in C. discriminate.
+        * destruct (Sigma_dec a s).
+          -- rewrite <- e. destruct cand.
+             ++ unfold not. intros C. apply match_iff_matchb in C. simpl in C.
+                unfold accepting in A0. unfold transition in A0.
+                rewrite A0 in C. discriminate.
+             ++ assert (A2 : no_max_pref code (transition a fsm)).
+                { apply IHcode. reflexivity. }
+                inv A2. specialize (H1 (s0 :: cand)). inv H0. destruct H2. injection H0.
+                intros I1. assert (A3 :  s0 :: cand ++_= code).
+                { apply pref_def. exists x. apply I1. }
+                apply H1 in A3. unfold not. intros C. unfold not in A3. destruct A3.
+                apply match_iff_matchb. apply match_iff_matchb in C.
+                simpl. simpl in C. apply C.
+          -- inv H0. destruct H1. injection H0. intros I1 I2. rewrite I2 in n. contradiction.
+  }
+Qed.
+
+Lemma max_pref_matches : forall(code p x : String) (fsm : State),
+  Some (p, x) = max_pref_fn code fsm
+  -> exp_match p fsm.
+Proof.
+  induction code; intros p x fsm H.
+  - assert (A0 : p = []).
+    {
+      apply max_pref_fn_splits in H. symmetry in H. destruct p.
+      - reflexivity.
+      - discriminate.
+    }
+    rewrite A0. simpl in H. destruct (accepting fsm) eqn:E0.
+    + apply nullable_bridge. symmetry. apply E0.
+    + discriminate.
+  - simpl in H. destruct (max_pref_fn code (transition a fsm)) eqn:E0.
+    + destruct p0. injection H. intros I1 I2. rewrite I2.
+      symmetry in E0. apply IHcode in E0.
+      apply match_iff_matchb. apply match_iff_matchb in E0. simpl. apply E0.
+    + destruct (accepting (transition a fsm)) eqn:E1.
+      * injection H. intros I1 I2. rewrite I2. apply match_iff_matchb.
+        simpl. symmetry. apply E1.
+      * destruct (accepting fsm) eqn:E2.
+        -- injection H. intros I1 I2. rewrite I2. apply nullable_bridge. symmetry. apply E2.
+        -- discriminate.
+Qed.
+
+Theorem max_pref_correct_Some : forall(code p : String) (fsm : State),
+    max_pref code fsm p <-> exists(q : String), Some (p, q) = max_pref_fn code fsm.
+Proof.
+  induction code.
+  {
+    intros p fsm. split; intros H.
+    - exists []. simpl. assert (A0 : p = []).
+      {
+        inv H. inv H1. destruct H0. destruct x.
+        - rewrite nil_right in H. apply H.
+        - destruct p.
+          + reflexivity.
+          + discriminate.
+      }
+      destruct (accepting fsm) eqn:E0.
+      + rewrite A0. reflexivity.
+      + inv H. apply nullable_bridge in H2. unfold accepting in E0.
+        rewrite E0 in H2. discriminate.
+    - destruct H. apply MP1.
+      + apply max_pref_fn_splits in H. symmetry in H.
+        apply pref_def. exists x. apply H.
+      + apply max_pref_matches in H. apply H.
+      + intros cand H0. inv H0. destruct H1.
+        assert (A0 : cand = []).
+        {
+          destruct cand.
+          - reflexivity.
+          - discriminate.
+        }
+        assert (A1 : p = []).
+        {
+          simpl in H. destruct (accepting fsm).
+          - injection H. intros I1 I2. apply I2.
+          - discriminate.
+        }
+        rewrite A0. rewrite A1. left. omega.
+  }
+  {
+    intros p fsm. split; intros H.
+    - destruct p.
+      + exists (a :: code). inv H. simpl.
+        destruct (max_pref_fn code (transition a fsm)) eqn:E0.
+        * destruct p. symmetry in E0.
+          assert (Ae : exists q, Some (s, q) = max_pref_fn code (transition a fsm)).
+          { exists s0. apply E0. }
+          apply IHcode in Ae. inv Ae.
+          assert (Ap : a :: s ++_= a :: code).
+          { apply cons_prefix. split. reflexivity. apply H0. }
+          apply H3 in Ap. destruct Ap.
+          -- simpl in H. omega.
+          -- exfalso. unfold not in H. destruct H.
+             apply match_iff_matchb. apply match_iff_matchb in H4. simpl. apply H4.
+        * assert (A0 : accepting (transition a fsm) = false).
+          {
+            destruct code.
+            - simpl in E0. destruct (accepting (transition a fsm)).
+              + discriminate.
+              + reflexivity.
+            - simpl in E0. destruct (max_pref_fn code (transition s (transition a fsm))).
+              + destruct p. discriminate.
+              + destruct (accepting (transition s (transition a fsm))).
+                * discriminate.
+                * destruct (accepting (transition a fsm)).
+                  -- discriminate.
+                  -- reflexivity.
+          }
+          rewrite A0. apply nullable_bridge in H2. unfold accepting. rewrite <- H2.
+          reflexivity.
+      + inv H. inv H1. destruct H0. injection H.
+        intros I1 I2. clear H. exists x. subst s.
+        assert (Ap : p ++_= code).
+        { apply pref_def. exists x. apply I1. }
+        simpl. destruct (max_pref_fn code (transition a fsm)) eqn:E0; symmetry in E0.
+        * destruct p0.
+          assert (Ae : exists q, Some (s, q) = max_pref_fn code (transition a fsm)).
+          { exists s0. apply E0. }
+          apply IHcode in Ae. inv Ae. inv H1. destruct H5. apply max_pref_fn_splits in E0.
+          (* Want to show p = s *)
+          assert (A0 : p ++_= p ++ x).
+          { apply pref_def. exists x. reflexivity. }
+          assert (A1 : a :: s ++_= a :: p ++ x).
+          { apply pref_def. exists x0. rewrite <- H. reflexivity. }
+          apply H3 in A1. apply H4 in A0.
+          (* should follow that p and s0 are prefixes of the same length and thus equal *)
+          assert (A0' : length p <= length s).
+          {
+            destruct A0.
+            - apply H1.
+            - exfalso. destruct H1. apply match_iff_matchb in H2. simpl in H2.
+              apply match_iff_matchb. apply H2.
+          }
+          assert (A1' : length s <= length p).
+          {
+            destruct A1.
+            - simpl in H1. omega.
+            - exfalso. destruct H1. apply match_iff_matchb in H0.
+              apply match_iff_matchb. simpl. apply H0.
+          }
+          assert (A : length p = length s).
+          { omega. }
+          assert (As : s ++_= p ++ x).
+          { apply pref_def. exists x0. apply H. }
+          apply eq_len_eq_pref with (x := p ++ x) in A.
+          -- rewrite A. rewrite A in E0. apply app_inv_head in E0. rewrite E0. reflexivity.
+          -- apply As.
+          -- apply Ap.
+        * apply max_pref_correct_None in E0. inv E0.
+          assert (A0 : p = []).
+          {
+            assert (A1 : p ++_= p ++ x).
+            { apply pref_def. exists x. reflexivity. }
+            apply H1 in A1. unfold not in A1. destruct A1.
+            apply match_iff_matchb. apply match_iff_matchb in H2. simpl in H2. subst. apply H2.
+          }
+          assert (A1 : accepting (transition a fsm) = true).
+          { rewrite A0 in H2. apply match_iff_matchb in H2. simpl in H2. symmetry. apply H2. }
+          rewrite A1. rewrite A0. reflexivity.
+    - destruct H. apply MP1.
+      + apply max_pref_fn_splits in H. apply pref_def. exists x. symmetry. apply H.
+      + apply max_pref_matches in H. apply H.
+      + intros cand Hpref. destruct p.
+        * simpl in H.
+          destruct (max_pref_fn code (transition a fsm)) eqn:E0.
+          -- destruct p. discriminate.
+          -- destruct (accepting (transition a fsm)) eqn:E1.
+             ++ discriminate.
+             ++ destruct (accepting fsm) eqn:E2.
+                ** symmetry in E0. apply max_pref_correct_None in E0. inv E0. destruct cand.
+                   { left. omega. }
+                   { right. inv Hpref. destruct H0. injection H0. intros I1 I2.
+                     unfold not. intros C. assert (A : cand ++_= code).
+                     { apply pref_def. exists x0. apply I1. }
+                     apply H1 in A. unfold not in A. destruct A.
+                     apply match_iff_matchb in C. simpl in C. subst a.
+                     apply match_iff_matchb. apply C.
+                   }
+                ** discriminate.
+        * simpl in H.
+          destruct (max_pref_fn code (transition a fsm)) eqn:E0; symmetry in E0.
+          -- destruct p0. injection H. intros I1 I2 I3. 
+             assert (Ae : exists q, Some (s0, q) = max_pref_fn code (transition a fsm)).
+             { exists s1. apply E0. }
+             apply IHcode in Ae. inv Ae. destruct cand.
+             ++ left. simpl. omega.
+             ++ inv Hpref. destruct H0. injection H0. intros I1 I2. subst s.
+                assert (Apref : cand ++_= code).
+                { apply pref_def. exists x. apply I1. }
+                apply H3 in Apref. destruct Apref.
+                ** left. simpl. omega.
+                ** right. intros C. destruct H4. apply match_iff_matchb in C. simpl in C.
+                   apply match_iff_matchb. apply C.
+          -- apply max_pref_correct_None in E0. inv E0.
+             assert (A0 : accepting (transition a fsm) = true).
+             {
+               destruct (accepting (transition a fsm)); destruct (accepting fsm);
+                 try(reflexivity); try(discriminate).
+             }
+             assert (A1 : [] ++_= code).
+             { apply pref_def. exists code. reflexivity. }
+             apply H1 in A1. destruct A1. apply nullable_bridge. symmetry. apply A0.
+  }
+    
