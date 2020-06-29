@@ -713,7 +713,7 @@ Inductive earlier_rule : Rule -> Rule -> list Rule -> Prop :=
     earlier_rule ru1 ru2 rus.
 
 (* Given an explicit witness, r:regex, we define the first lexeme *)
-Inductive first_lexeme_expl : String -> regex -> (list Rule) -> Token -> Prop :=
+Inductive first_token_expl : String -> regex -> (list Rule) -> Token -> Prop :=
 | MPRu1 (code p : String) (l : String) (r : regex) (rus : list Rule)
         (Hex : In (l, r) rus)
         (Hmpref : re_max_pref code r p)
@@ -731,13 +731,13 @@ Inductive first_lexeme_expl : String -> regex -> (list Rule) -> Token -> Prop :=
             -> In (l',r') rus
             -> earlier_rule (l, r) (l', r') rus
         ) :
-    first_lexeme_expl code r rus (p, l).
+    first_token_expl code r rus (p, l).
 
 (* Now we say that if such a witness exists, the Token is the first lexeme *)
-Inductive first_lexeme : String -> (list Rule) -> Token -> Prop :=
+Inductive first_token : String -> (list Rule) -> Token -> Prop :=
 | FL1 (code p l : String) (rus : list Rule)
-      (Hex : exists(r : regex), first_lexeme_expl code r rus (p, l)) :
-    first_lexeme code rus (p, l).
+      (Hex : exists(r : regex), first_token_expl code r rus (p, l)) :
+    first_token code rus (p, l).
       
              
               
