@@ -11,10 +11,11 @@ Definition Sigma := regex.Sigma.
 Definition Sigma_dec := regex.Sigma_dec.
 Definition String := regex.String.
 
-Definition Rule : Type := String * regex.
-Definition Token : Type := String * String.
-Definition eToken : Type := Rule * String * String.
-Definition eLexemes : Type := list eToken.
+Definition Label : Type := String.
+Definition Prefix : Type := String.
+Definition Suffix : Type := String.
+Definition Rule : Type := Label * regex.
+Definition Token : Type := Label * Prefix.
 (* Look into Coq record types *)
 
 
@@ -47,6 +48,7 @@ Definition accepts : String -> State -> bool := exp_matchb.
 Definition accepting : State -> bool:= nullable.
 Definition init_state (r : regex) : State := r.
 Definition init_state_inv (fsm : State) : regex := fsm.
+Definition sRule : Type := Label * State.
 
 Lemma invert_init_correct : forall(r : regex),
     init_state_inv (init_state r) = r.
@@ -54,14 +56,8 @@ Proof.
   intros r. unfold init_state. unfold init_state_inv. reflexivity.
 Qed.
 
-(* in eRule, the State would be the initial state of the machine after converting from regex *)
-Definition eRule : Type := String * regex * State.
-Definition absorbing_state := EmptySet.
-Definition eeToken : Type := eRule * String * String.
-Definition eeLexemes : Type := list eeToken.
 
-
-Fixpoint max_pref_fn (s : String) (state : State) : option (String * String):=
+Fixpoint max_pref_fn (s : String) (state : State) : option (Prefix * Suffix):=
   match s with
   (* in a regex approach, accepting := nullable *)
   | [] => if accepting state then Some ([],[]) else None
@@ -80,7 +76,7 @@ Fixpoint max_pref_fn (s : String) (state : State) : option (String * String):=
     end
   end.
 
-Lemma max_pref_fn_splits : forall(code prefix suffix : String) (fsm : State),
+Lemma max_pref_fn_splits : forall code prefix suffix (fsm : State),
     Some (prefix, suffix) = max_pref_fn code fsm -> code = prefix ++ suffix.
 Proof.
   induction code as [| a s']; intros prefix suffix fsm H.
@@ -100,7 +96,7 @@ Proof.
         -- discriminate.
 Qed.
 
-Lemma proper_suffix_shorter : forall(code prefix suffix : String) (fsm : State),
+Lemma proper_suffix_shorter : forall code prefix suffix (fsm : State),
   prefix <> []
   -> Some (prefix, suffix) = max_pref_fn code fsm
   -> length suffix < length code.
@@ -114,16 +110,17 @@ Proof.
   - symmetry. apply app_length.
 Qed.
         
-Definition extract_fsm_for_max (code : String) (eru : eRule) :=
+Definition extract_fsm_for_max (code : String) (ru : (Label * State)) :=
   match eru with
-    (_, _, fsm) => (eru, max_pref_fn code fsm)
+    (a, fsm) => (a, max_pref_fn code fsm)
   end.
 
-Definition max_prefs (code : String) (erules : list eRule) :=
+Definition max_prefs (code : String) (erules : list (Label * State)) :=
     map (extract_fsm_for_max code) erules.
 
 (* it looks like prefixes closest to the head are preffered *)
-Definition longer_pref (apref1 apref2 : eRule * (option (String * String))) :=
+Definition longer_pref (apref1 apref2 : Label * (option (Prefix * Suffix)))
+  : Label * (option (Prefix * Suffix)) :=
   match apref1, apref2 with
   | (_, None), (_, _) => apref2
   | (_, _), (_, None) => apref1
@@ -131,9 +128,10 @@ Definition longer_pref (apref1 apref2 : eRule * (option (String * String))) :=
                                          then apref2 else apref1
   end.
 
-Fixpoint max_of_prefs (mprefs : list (eRule * (option (String * String)))) :=
+Fixpoint max_of_prefs (mprefs : list (Label * (option (Prefix * Suffix))))
+  : Label * option (Prefix * Suffix) :=
   match mprefs with
-  | [] => (([], EmptySet, EmptySet), @None (String * String))
+  | [] => ([], @None (String * String))
   | p :: ps => longer_pref p (max_of_prefs ps)
   end.
 
@@ -144,7 +142,7 @@ Proof.
   intros ys x y H. simpl in H. destruct y.
   destruct o; unfold longer_pref in H; destruct (max_of_prefs ys).  
   - destruct p. destruct o.
-    + destruct p. destruct (length s1 <? length s).
+    + destruct p0. destruct (length p0 <? length p).
       * right. apply H.
       * left. apply H.
     + left. apply H.
@@ -160,7 +158,7 @@ Program Fixpoint lex (rules : list Rule) (code : String)
         | _ =>
           let
             erules := map (fun ru => match ru with
-                                    (a,re) => (a, re, init_state re)
+                                    (a,re) => (a, init_state re)
                                   end) rules
           in
           let (* find all the maximal prefixes, associating them with a rule as we go *)
@@ -172,7 +170,7 @@ Program Fixpoint lex (rules : list Rule) (code : String)
           match mpref with
           | (_, None) => None (* This state suggests malformed code *)
           | (_, Some ([], _)) => None (* Longest match empty-> non-terminating-> malformed code *)
-          | ((label, _, _), Some (prefix, suffix)) => match (lex rules suffix) with
+          | (label, Some (prefix, suffix)) => match (lex rules suffix) with
                                                 | None => None
                                                 | Some lexemes =>
                                                   Some ( (label, prefix) :: lexemes )
@@ -184,14 +182,14 @@ Next Obligation.
   assert (A0 : prefix <> []).
   {
     unfold not. intros C. rewrite C in H1.
-    specialize (H1 (label, wildcard', wildcard'0)). specialize (H1 suffix).
+    specialize (H1 label). specialize (H1 suffix).
     contradiction.
   }
   assert (A2 : exists(fsm : State), Some (prefix, suffix) = max_pref_fn code fsm).
   { 
     induction rules. contradiction.
     simpl in Heq_mpref. apply max_first_or_rest in Heq_mpref. destruct Heq_mpref.
-    - destruct a in H2. exists(init_state r). injection H2. intros I1 I2 I3 I4. apply I1.
+    - destruct a in H2. exists(init_state r). injection H2. intros I1 I2. apply I1.
     - apply IHrules.
       + destruct rules.
         * simpl in H2. discriminate.
@@ -203,6 +201,42 @@ Next Obligation.
   - apply A0.
   - apply H2.
 Qed.
+
+Theorem lex_eq_body : forall(rules : list Rule) (code : String),
+    lex rules code =
+      match code with
+  | [] => Some []
+  | _ => match rules with
+        | [] => None (* must have rules *)
+        | _ =>
+          let
+            erules := map (fun ru => match ru with
+                                    (a,re) => (a, init_state re)
+                                  end) rules
+          in
+          let (* find all the maximal prefixes, associating them with a rule as we go *)
+            mprefs := max_prefs code erules
+          in
+          let (* of these maximal prefixes, find the longest *)
+            mpref := max_of_prefs mprefs
+          in
+          match mpref with
+          | (_, None) => None (* This state suggests malformed code *)
+          | (_, Some ([], _)) => None (* Longest match empty-> non-terminating-> malformed code *)
+          | (label, Some (prefix, suffix)) => match (lex rules suffix) with
+                                                | None => None
+                                                | Some lexemes =>
+                                                  Some ( (label, prefix) :: lexemes )
+                                                end
+          end
+        end
+  end.
+Proof.
+  intros rules code.
+  unfold lex. unfold lex_func.
+  rewrite Wf.fix_sub_eq; auto.
+  Admitted.
+  
   
 (************************************
 *
@@ -304,8 +338,9 @@ Inductive re_max_pref : String -> regex -> String -> Prop :=
 | re_MP1 (s p : String) (r : regex)
          (H1 : p ++_= s)
          (H2 : exp_match p r)
-         (H3 : forall(cand : String), cand ++_= s
-                                 -> ((length cand) <= (length p)) \/ ~(exp_match cand r)) :
+         (H3 : forall(cand : String),
+             cand ++_= s
+             -> ((length cand) <= (length p)) \/ ~(exp_match cand r)) :
     re_max_pref s r p.
 
 Inductive no_max_pref : String -> State -> Prop :=
@@ -497,10 +532,10 @@ Proof.
       + exists (a :: code). inv H. simpl.
         destruct (max_pref_fn code (transition a fsm)) eqn:E0.
         * destruct p. symmetry in E0.
-          assert (Ae : exists q, Some (s, q) = max_pref_fn code (transition a fsm)).
-          { exists s0. apply E0. }
+          assert (Ae : exists q, Some (p, q) = max_pref_fn code (transition a fsm)).
+          { exists s. apply E0. }
           apply IHcode in Ae. inv Ae.
-          assert (Ap : a :: s ++_= a :: code).
+          assert (Ap : a :: p ++_= a :: code).
           { apply cons_prefix. split. reflexivity. apply H0. }
           apply H3 in Ap. destruct Ap.
           -- simpl in H. omega.
@@ -528,33 +563,33 @@ Proof.
         { apply pref_def. exists x. apply I1. }
         simpl. destruct (max_pref_fn code (transition a fsm)) eqn:E0; symmetry in E0.
         * destruct p0.
-          assert (Ae : exists q, Some (s, q) = max_pref_fn code (transition a fsm)).
-          { exists s0. apply E0. }
+          assert (Ae : exists q, Some (p0, q) = max_pref_fn code (transition a fsm)).
+          { exists s. apply E0. }
           apply IHcode in Ae. inv Ae. inv H1. destruct H5. apply max_pref_fn_splits in E0.
-          (* Want to show p = s *)
+          (* Want to show p = p0 *)
           assert (A0 : p ++_= p ++ x).
           { apply pref_def. exists x. reflexivity. }
-          assert (A1 : a :: s ++_= a :: p ++ x).
+          assert (A1 : a :: p0 ++_= a :: p ++ x).
           { apply pref_def. exists x0. rewrite <- H. reflexivity. }
           apply H3 in A1. apply H4 in A0.
-          (* should follow that p and s0 are prefixes of the same length and thus equal *)
-          assert (A0' : length p <= length s).
+          (* should follow that p and p0 are prefixes of the same length and thus equal *)
+          assert (A0' : length p <= length p0).
           {
             destruct A0.
             - apply H1.
             - exfalso. destruct H1. apply accepts_matches in H2.
               apply accepts_matches. simpl in H2. apply H2.
           }
-          assert (A1' : length s <= length p).
+          assert (A1' : length p0 <= length p).
           {
             destruct A1.
             - simpl in H1. omega.
             - exfalso. destruct H1. apply accepts_matches in H0.
               apply accepts_matches. simpl. apply H0.
           }
-          assert (A : length p = length s).
+          assert (A : length p = length p0).
           { omega. }
-          assert (As : s ++_= p ++ x).
+          assert (As : p0 ++_= p ++ x).
           { apply pref_def. exists x0. apply H. }
           apply eq_len_eq_pref with (x := p ++ x) in A.
           -- rewrite A. rewrite A in E0. apply app_inv_head in E0. rewrite E0. reflexivity.
@@ -595,8 +630,8 @@ Proof.
         * simpl in H.
           destruct (max_pref_fn code (transition a fsm)) eqn:E0; symmetry in E0.
           -- destruct p0. injection H. intros I1 I2 I3. 
-             assert (Ae : exists q, Some (s0, q) = max_pref_fn code (transition a fsm)).
-             { exists s1. apply E0. }
+             assert (Ae : exists q, Some (p0, q) = max_pref_fn code (transition a fsm)).
+             { exists s0. apply E0. }
              apply IHcode in Ae. inv Ae. destruct cand.
              ++ left. simpl. omega.
              ++ inv Hpref. destruct H0. injection H0. intros I1 I2. subst s.
@@ -712,10 +747,10 @@ Inductive earlier_rule : Rule -> Rule -> list Rule -> Prop :=
            -> n1 < n2) :
     earlier_rule ru1 ru2 rus.
 
-(* Given an explicit witness, r:regex, we define the first lexeme *)
+(* Given an explicit witness, r:regex, we define the first token *)
 Inductive first_token_expl : String -> regex -> (list Rule) -> Token -> Prop :=
 (* l is Token.label, p is Token.value *)
-| MPRu1 (code p : String) (l : String) (r : regex) (rus : list Rule)
+| FTE1 (code : String) (p : Prefix) (l : Label) (r : regex) (rus : list Rule)
         (Hex : In (l, r) rus)
         (Hmpref : re_max_pref code r p)
         (* We can't produce longer prefixes from other rules *)
@@ -734,12 +769,138 @@ Inductive first_token_expl : String -> regex -> (list Rule) -> Token -> Prop :=
         ) :
     first_token_expl code r rus (l, p).
 
-(* Now we say that if such a witness exists, the Token is the first lexeme *)
-Inductive first_token : String -> (list Rule) -> Token -> Prop :=
-| FL1 (code p l : String) (rus : list Rule)
+(* Now we say that if such a witness exists, the Token is the first token *)
+Inductive first_token : list Rule -> String -> Token -> Prop :=
+| FT1 (code : String) (p : Prefix) (l : Label) (rus : list Rule)
       (Hex : exists(r : regex), first_token_expl code r rus (l, p)) :
-    first_token code rus (l, p).
-      
+    first_token rus code (l, p).
+
+Inductive all_tokens : list Rule -> String -> list Token -> Prop :=
+| AT0 (rus : list Rule) : all_tokens rus [] []
+| AT1 (p : Prefix) (s : Suffix) (rus : list Rule) (t : Token) (ts : list Token)
+      (IH : all_tokens rus s ts)
+      (H : first_token rus p t) :
+    all_tokens rus (p ++ s) (t :: ts).
+
+Lemma lex_nil_code : forall(code : String) (rus : list Rule),
+    lex rus code = Some [] <-> code = [].
+Proof.
+  intros code rus. split; intros H.
+  {
+    destruct code.
+    - reflexivity.
+    - rewrite lex_eq_body in H. destruct rus as [| ru rus].
+      + discriminate.
+      + destruct
+          (map (fun ru : Label * regex => let (a, re) := ru in (a, init_state re)) (ru :: rus)).
+        * simpl in H. discriminate.
+        * simpl in H.
+          destruct (longer_pref (extract_fsm_for_max (s :: code) p) (max_of_prefs (max_prefs (s :: code) l))).
+          destruct o.
+          -- destruct p0. destruct p0.
+             ++ discriminate.
+             ++ destruct (lex (ru :: rus) s0).
+                ** discriminate.
+                ** discriminate.
+          -- discriminate. 
+  }
+  {
+    destruct code.
+    - rewrite lex_eq_body. reflexivity.
+    - discriminate.
+  }
+Qed.
+
+Lemma first_token_prefix : forall code l p (ts : list Token) (rus : list Rule),
+    lex rus code = Some ((l, p) :: ts)
+    -> exists(q : Suffix), (p ++ q = code /\ lex rus q = Some ts).
+Proof.
+  intros code l p ts rus H.
+  rewrite lex_eq_body in H.
+  destruct code. discriminate.
+  destruct rus. discriminate.
+  destruct (map (fun ru : Label * regex => let (a, re) := ru in (a, init_state re)) (r :: rus));
+    simpl in H. discriminate.
+  destruct (longer_pref (extract_fsm_for_max (s :: code) p0)
+                        (max_of_prefs (max_prefs (s :: code) l0))) eqn:E0.
+  destruct o.
+  - destruct p1 as [prefix suffix].
+    destruct prefix. discriminate.
+    destruct (lex (r :: rus) suffix) eqn:E1.
+    + exists suffix. split.
+      {
+        (* follows from E1, need lemma. *) admit.
+      }
+      {
+        injection H. intros I1 I2 I3. rewrite <- I1. apply E1.
+      }
+    + discriminate.
+Admitted.
+
+Theorem lex_tokenizes : forall(ts : list Token) (code : String) (rus : list Rule),
+    lex rus code = Some ts -> all_tokens rus code ts.
+Proof.
+  induction ts; intros code rus H.
+  - destruct code.
+    + apply AT0.
+    + apply lex_nil_code in H. discriminate.
+  - destruct a. apply first_token_prefix in H. destruct H.
+    destruct H. rewrite <- H. apply AT1.
+    + apply IHts in H0. apply H0.
+    + apply FT1. Admitted.
+
+Definition concat_values (ts : list Token) :=
+  concat (map snd ts).
+
+Lemma cons_concat_values : forall(a : Token) (ts : list Token),
+    concat_values (a :: ts) = (snd a) ++ (concat_values ts).
+Proof.
+  intros a ts. unfold concat_values. simpl. reflexivity.
+Qed.
+
+Theorem lex_partitions : forall(ts : list Token) (code : String) (rus : list Rule),
+    lex rus code = Some ts -> concat_values ts = code.
+Proof.
+  induction ts; intros code rus H.
+  - rewrite lex_eq_body in H. destruct rus as [| ru rus].
+    + destruct code.
+      * unfold concat_values. simpl. reflexivity.
+      * discriminate.
+    + destruct code.
+      * unfold concat_values. simpl. reflexivity.
+      * (* regardless of what o or the recursive call to lex match with, 
+           a contradiction is reached. Not sure how to do this formally *) admit.
+  - assert(A : exists(s : String), (snd a) ++ s = code /\ lex rus s = Some ts).
+    {
+      (* s := the suffix after (snd a) is removed as the first prefix *)
+      admit.
+    }
+    destruct A. destruct H0. apply IHts in H1.
+    rewrite cons_concat_values. rewrite H1. apply H0.
+Admitted.
+
+Inductive malformed : list Rule -> String -> Prop :=
+| MF__rus (code : String)
+        (H : code <> []) :
+    malformed [] code
+| MF__nil (rus : list Rule) (code : String)
+        (H : exists(l : String), first_token rus code (l, [])) :
+    malformed rus code
+| MF__none (rus : list Rule) (code : String)
+         (H : forall(p l : String), ~(first_token rus code (p, l))) :
+    malformed rus code
+| MF__ind (rus : list Rule) (p s : String)
+        (IH : malformed rus s)
+        (H : exists(l : String), first_token rus (p ++ s) (l, p)) :
+    malformed rus (p ++ s).
+         
+   
+Theorem lex_error : forall(code : String) (rus : list Rule),
+    lex rus code = None <-> malformed rus code.
+Proof.
+Admitted.
+
+                            
              
               
             
