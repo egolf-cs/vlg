@@ -208,7 +208,13 @@ Definition lex (rules : list Rule) (code : String) :=
   in
   lex' srules code.
 
-Theorem lex'_eq_body : forall(rules : list Rule) (code : String),
+(* destruct a match in a hypothesis *)
+Ltac dmh := match goal with | H : context[match ?x with | _ => _ end] |- _ => destruct x end.
+(* destruct a match in the goal *)
+Ltac dmg := match goal with | |- context[match ?x with | _ => _ end] => destruct x end.
+Ltac dm := (first [dmh | dmg]); auto.
+
+Theorem lex'_eq_body : forall(rules : list sRule) (code : String),
     lex' rules code =
     match code with
     | [] => Some []
@@ -236,6 +242,15 @@ Proof.
   intros rules code.
   unfold lex'. unfold lex'_func.
   rewrite Wf.fix_sub_eq; auto.
+  - simpl; repeat dm.
+  - intros. simpl. destruct x. simpl. repeat dm.
+    admit. 
+    
+    (*
+    rewrite H.
+  match goal with
+    | |- context[NtSet.eq_dec ?a ?b] => destruct (NtSet.eq_dec a b)
+  end; auto. *)
   Admitted.
   
   
@@ -280,6 +295,11 @@ Proof.
     destruct H. inv H0. destruct H1.
     apply pref_def. exists x. rewrite <- H. reflexivity.
   }
+Qed.
+
+Lemma self_prefix : forall(p : String), p ++_= p.
+Proof.
+  intros p. apply pref_def. exists []. apply nil_right.
 Qed.
 
 Lemma eq_len_eq_pref : forall(x s p : String),
@@ -720,6 +740,14 @@ Proof.
     + apply H.
 Qed.
 
+(* Sam's zoom message:
+
+ List.nth_error : list A -> nat -> option A 
+at_index r n rs == ... 
+List.nth_error rs n = Some r 
+least_index r n rs == ... 
+List.nth_error rs n = Some r /\... 
+forall n', List.nth_error rs n' = Some r -> n < n' *)
 
 (* a rule is at index 0 if it's the first element of the list.
    Otherwise a rule is at index n + 1 if it's at index n of the tail of the list *)
@@ -755,7 +783,11 @@ Inductive first_token_expl : String -> regex -> (list Rule) -> Token -> Prop :=
         (Hex : In (l, r) rus)
         (Hmpref : re_max_pref code r p)
         (* We can't produce longer prefixes from other rules *)
+        (* disjunction might be used to combine Hout and Hlater *)
         (Hout : forall(l' : String) (r' : regex) (p' : String),
+            (* (In (l',r') rus)
+            -> re_max_pref code r' p'
+            -> length p' <= length p *)
             length p' > length p
             -> re_max_pref code r' p'
             -> ~(In (l',r') rus)
@@ -772,13 +804,13 @@ Inductive first_token_expl : String -> regex -> (list Rule) -> Token -> Prop :=
 
 (* Now we say that if such a witness exists, the Token is the first token *)
 Inductive first_token : list Rule -> String -> Token -> Prop :=
-| FT1 (code : String) (p : Prefix) (l : Label) (rus : list Rule)
-      (Hex : exists(r : regex), first_token_expl code r rus (l, p)) :
+| FT1 (code : String) (p : Prefix) (l : Label) (rus : list Rule) (r : regex)
+      (Hex : first_token_expl code r rus (l, p)) :
     first_token rus code (l, p).
 
-Inductive all_tokens : list Rule -> String -> list Token -> Prop :=
-| AT0 (rus : list Rule) : all_tokens rus [] []
-| AT1 (p : Prefix) (s : Suffix) (rus : list Rule) (t : Token) (ts : list Token)
+Inductive all_tokens (rus : list Rule) : String -> list Token -> Prop :=
+| AT0 : all_tokens rus [] []
+| AT1 (p : Prefix) (s : Suffix) (t : Token) (ts : list Token)
       (IH : all_tokens rus s ts)
       (H : first_token rus p t) :
     all_tokens rus (p ++ s) (t :: ts).
@@ -836,6 +868,9 @@ Proof.
   - discriminate.
 Admitted.
 
+(* all_tokens rus code ts -> all_tokens rus code ts' -> ts = ts' 
+(all_tokens_is_a_function) *)
+
 Theorem lex_tokenizes : forall(ts : list Token) (code : String) (rus : list Rule),
     lex rus code = Some ts -> all_tokens rus code ts.
 Proof.
@@ -843,10 +878,19 @@ Proof.
   - destruct code.
     + apply AT0.
     + apply lex'_nil_code in H. discriminate.
-  - destruct a. apply first_token_prefix in H. destruct H.
+  - destruct a. apply first_token_is_prefix in H. destruct H.
     destruct H. rewrite <- H. apply AT1.
     + apply IHts in H0. apply H0.
-    + apply FT1. Admitted.
+      (* I think a lemma about max_prefs would go a long way here *)
+    + apply FT1. exists EmptySet. apply FTE1.
+      * (* rule in rules *) admit.
+      * (* rule.re is max prefix *) apply re_MP1.
+        -- apply self_prefix.
+        -- (* p matches rule.re *) admit.
+        -- (* no larger prefix matches *) admit.
+      * (* no other rule produces a larger prefix *) admit.
+      * (* no earlier rule produces a prefix of the same size *) admit.
+Admitted.
 
 Definition concat_values (ts : list Token) :=
   concat (map snd ts).
@@ -861,14 +905,20 @@ Theorem lex_partitions : forall(ts : list Token) (code : String) (rus : list Rul
     lex rus code = Some ts -> concat_values ts = code.
 Proof.
   induction ts; intros code rus H.
-  - rewrite lex_eq_body in H. destruct rus as [| ru rus].
+  - unfold lex in H. rewrite lex'_eq_body in H. destruct rus as [| ru rus].
     + destruct code.
       * unfold concat_values. simpl. reflexivity.
       * discriminate.
     + destruct code.
       * unfold concat_values. simpl. reflexivity.
-      * (* regardless of what o or the recursive call to lex match with, 
-           a contradiction is reached. Not sure how to do this formally *) admit.
+      * destruct (map init_srule (ru :: rus)). discriminate.
+        destruct (max_prefs (s :: code) (s0 :: l)); simpl in H. discriminate.
+        destruct (longer_pref p (max_of_prefs l0)).
+        destruct o.
+        -- destruct p0. destruct p0. discriminate.
+           destruct (lex' (s0 :: l) s1). discriminate.
+           discriminate.
+        -- discriminate.
   - assert(A : exists(s : String), (snd a) ++ s = code /\ lex rus s = Some ts).
     {
       (* s := the suffix after (snd a) is removed as the first prefix *)
@@ -878,6 +928,7 @@ Proof.
     rewrite cons_concat_values. rewrite H1. apply H0.
 Admitted.
 
+(* Think about: soundness, completeness, and not rejecting well-formed input *)
 Inductive malformed : list Rule -> String -> Prop :=
 | MF__rus (code : String)
         (H : code <> []) :
