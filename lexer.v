@@ -150,51 +150,43 @@ Proof.
 Qed.
     
 Program Fixpoint lex' (rules : list sRule) (code : String)
-        {measure (length code)} : option (list Token) :=
-  match code with
-  | [] => Some []
-  | _ => match rules with
-        | [] => None (* must have rules *)
-        | _ =>
-          let (* find all the maximal prefixes, associating them with a rule as we go *)
-            mprefs := max_prefs code rules
-          in
-          let (* of these maximal prefixes, find the longest *)
-            mpref := max_of_prefs mprefs
-          in
-          match mpref with
-          | (_, None) => None (* This state suggests malformed code *)
-          | (_, Some ([], _)) => None (* Longest match empty-> non-terminating-> malformed code *)
-          | (label, Some (prefix, suffix)) => match (lex' rules suffix) with
-                                                | None => None
-                                                | Some lexemes =>
-                                                  Some ( (label, prefix) :: lexemes )
-                                                end
-          end
-        end
+        {measure (length code)} : (list Token) * String :=
+  let (* find all the maximal prefixes, associating them with a rule as we go *)
+    mprefs := max_prefs code rules
+  in
+  let (* of these maximal prefixes, find the longest *)
+    mpref := max_of_prefs mprefs
+  in
+  match mpref with
+  | (_, None) => ([], code) (* Code cannot be processed further *)
+  | (_, Some ([], _)) => ([], code) (* Code cannot be processed further *)
+  | (label, Some (prefix, suffix)) =>
+    match (lex' rules suffix) with
+    | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
+    end
   end.
 Next Obligation.
   assert (A0 : prefix <> []).
   {
-    unfold not. intros C. rewrite C in H1.
-    specialize (H1 label). specialize (H1 suffix).
+    unfold not. intros C. rewrite C in H.
+    specialize (H label). specialize (H suffix).
     contradiction.
   }
   assert (A2 : exists(fsm : State), Some (prefix, suffix) = max_pref_fn code fsm).
   { 
-    induction rules. contradiction.
-    simpl in Heq_mpref. apply max_first_or_rest in Heq_mpref. destruct Heq_mpref.
-    - destruct a in H2. exists s. injection H2. intros I1 I2. apply I1.
-    - apply IHrules.
-      + destruct rules.
-        * simpl in H2. discriminate.
-        * unfold not. intros C. discriminate.
-      + apply H2.
+    induction rules.
+    - simpl in Heq_mpref. discriminate.
+    - simpl in Heq_mpref. apply max_first_or_rest in Heq_mpref. destruct Heq_mpref.
+      + destruct a in H0. exists s. injection H0. intros I1 I2. apply I1.
+      + apply IHrules.
+        * destruct rules.
+          -- simpl in H0. discriminate.
+          -- apply H0.
   }
   destruct A2 as [fsm].
   apply proper_suffix_shorter with (suffix := suffix) (code := code) (fsm := fsm) in A0.
   - apply A0.
-  - apply H2.
+  - apply H0.
 Qed.
 
 Definition init_srule (rule : Rule) : sRule :=
@@ -216,41 +208,26 @@ Ltac dm := (first [dmh | dmg]); auto.
 
 Theorem lex'_eq_body : forall(rules : list sRule) (code : String),
     lex' rules code =
-    match code with
-    | [] => Some []
-    | _ => match rules with
-          | [] => None (* must have rules *)
-          | _ =>
-            let (* find all the maximal prefixes, associating them with a rule as we go *)
-              mprefs := max_prefs code rules
-            in
-            let (* of these maximal prefixes, find the longest *)
-              mpref := max_of_prefs mprefs
-            in
-            match mpref with
-            | (_, None) => None (* This state suggests malformed code *)
-            | (_, Some ([], _)) => None (* malformed code *)
-            | (label, Some (prefix, suffix)) => match (lex' rules suffix) with
-                                               | None => None
-                                               | Some lexemes =>
-                                                 Some ( (label, prefix) :: lexemes )
-                                               end
-            end
-          end
+    let (* find all the maximal prefixes, associating them with a rule as we go *)
+      mprefs := max_prefs code rules
+    in
+    let (* of these maximal prefixes, find the longest *)
+      mpref := max_of_prefs mprefs
+    in
+    match mpref with
+    | (_, None) => ([], code) (* Code cannot be processed further *)
+    | (_, Some ([], _)) => ([], code) (* Code cannot be processed further *)
+    | (label, Some (prefix, suffix)) =>
+      match (lex' rules suffix) with
+      | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
+      end
     end.
 Proof.
   intros rules code.
   unfold lex'. unfold lex'_func.
   rewrite Wf.fix_sub_eq; auto.
   - simpl; repeat dm.
-  - intros. simpl. destruct x. simpl. repeat dm.
-    admit. 
-    
-    (*
-    rewrite H.
-  match goal with
-    | |- context[NtSet.eq_dec ?a ?b] => destruct (NtSet.eq_dec a b)
-  end; auto. *)
+  - intros. destruct x. simpl. repeat dm. admit.
   Admitted.
   
   
@@ -815,8 +792,108 @@ Inductive all_tokens (rus : list Rule) : String -> list Token -> Prop :=
       (H : first_token rus p t) :
     all_tokens rus (p ++ s) (t :: ts).
 
+Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :=
+| Tkd (p : Prefix) (s : Suffix) (ts : list Token)
+      (H0 : all_tokens rus p ts)
+      (H1 : forall(l : Label) (v : String), first_token rus s (l, v) -> v = []) :
+    tokenized rus (p ++ s) ts s.
+
+Lemma rest_is_suffix : forall(ts : list Token) (code rest : String) (rus : list Rule),
+    lex rus code = (ts, rest) -> exists(p : Prefix), p ++ rest = code.
+Admitted.
+
+Lemma processed_all_tokens : forall(ts : list Token) (processed rest : String) (rus : list Rule),
+    lex rus (processed ++ rest) = (ts, rest) -> all_tokens rus processed ts.
+Admitted.
+
+Lemma empty_max_prefs : forall rus code,
+    max_prefs code (map init_srule rus) = [] -> rus = [].
+Proof.
+  intros rus code H. destruct rus.
+  - reflexivity.
+  - simpl in H. discriminate.
+Qed.
+
+Lemma max_of_prefs_first_token : forall rus code l p s,
+  max_of_prefs (max_prefs code (map init_srule rus)) = (l, Some (p, s))
+  -> first_token rus code (l, p).
+Admitted.
+
+Lemma max_of_prefs_no_token : forall rus code l,
+  max_of_prefs (max_prefs code (map init_srule rus)) = (l, None)
+  -> forall(t : Token), ~(first_token rus code t).
+Admitted.
+
+Lemma first_token_unique : forall rus code t t',
+  first_token rus code t
+  -> first_token rus code t'
+  -> t = t'.
+Admitted.
+
+Lemma tokens_tail : forall ts a code rest rus, 
+    lex rus code = (a :: ts, rest) -> exists(code' : String), lex rus code' = (ts, rest).
+Admitted.
+
+Lemma rest_no_more_tokens : forall(ts : list Token) (code rest : String) (rus : list Rule),
+  lex rus code = (ts, rest)
+  -> (forall (l : Label) (v : String), first_token rus rest (l, v) -> v = []).
+Proof.
+  induction ts; intros code rest rus H0 l v H1.
+  {
+    unfold lex in H0. rewrite lex'_eq_body in H0.
+    destruct (max_prefs code (map init_srule rus)) eqn:E0; simpl in H0.
+    - apply empty_max_prefs in E0. injection H0. intros I1. subst code. clear H0. subst rus.
+      inv H1. inv Hex. contradiction.
+    - destruct (longer_pref p (max_of_prefs l0)) eqn:E1.
+      assert(A0 : max_of_prefs (p :: l0) = longer_pref p (max_of_prefs l0)).
+      { reflexivity. }
+      destruct o; rewrite E1 in A0; rewrite <- E0 in A0; clear E1 E0.
+      + destruct p0.
+        apply max_of_prefs_first_token in A0.
+        destruct p0.
+        * injection H0. intros I1.
+          subst code. apply first_token_unique with (t := (l, v)) in A0.
+          -- injection A0. intros I1 I2. apply I1.
+          -- apply H1.
+        * destruct (lex' (map init_srule rus) s). discriminate.
+      + apply max_of_prefs_no_token with (t := (l, v)) in A0.
+        injection H0. intros I1. subst code. contradiction.
+  }
+  {
+    apply tokens_tail in H0. destruct H0 as [code']. apply IHts with (l := l) (v := v) in H.
+    - apply H.
+    - apply H1.
+  }
+Qed. (* but depends on admitted lemmas *)
+          
+
+Theorem lex_tokenizes : forall(ts : list Token) (code rest : String) (rus : list Rule),
+    lex rus code = (ts, rest) -> tokenized rus code ts rest.
+Proof.
+  intros ts code rest rus H.
+  assert (H' := H). apply rest_is_suffix in H'. destruct H' as [processed]. subst code.
+  apply Tkd.
+  (* all tokens *)
+  - apply processed_all_tokens in H. apply H.
+  (* no more tokens *)
+  - apply rest_no_more_tokens with (ts := ts) (code := (processed ++ rest)). apply H.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 Lemma lex'_nil_code : forall(code : String) (rus : list Rule),
-    lex' rus code = Some [] <-> code = [].
+    lex' rus code = ([],[]) <-> code = [].
 Proof.
   intros code rus. split; intros H.
   {
