@@ -785,17 +785,94 @@ Inductive first_token : list Rule -> String -> Token -> Prop :=
       (Hex : first_token_expl code r rus (l, p)) :
     first_token rus code (l, p).
 
-Inductive all_tokens (rus : list Rule) : String -> list Token -> Prop :=
-| AT0 : all_tokens rus [] []
-| AT1 (p : Prefix) (s : Suffix) (t : Token) (ts : list Token)
-      (IH : all_tokens rus s ts)
-      (H : first_token rus p t) :
-    all_tokens rus (p ++ s) (t :: ts).
+(* This definition accounts for inputs that could not be entirely tokenized.
+   The list of tokens must match some prefix and the unprocessed suffix
+   must match s1 *)
+Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :=
+| Tkd0 (code : String)
+      (H : forall(t : Token), first_token rus code t -> snd t = []) :
+    (* If no tokens can be produced from the input,
+       then the input is tokenized by the empty list 
+       of tokens and itself *)
+    tokenized rus code [] code
+| Tkd1 (p : Prefix) (s0 s1 : Suffix) (t : Token) (ts : list Token)
+      (* the first token matches the input *)
+      (H0 : first_token rus (p ++ s0 ++ s1) t)
+      (* the first token matches the relevant prefix *)
+      (H1 : snd t = p)
+      (* The rest of the tokens match the rest of the input *)
+      (IH : tokenized rus (s0 ++ s1) ts s1) :
+    tokenized rus (p ++ s0 ++ s1) (t :: ts) s1.
 
+Lemma no_tokens_suffix_self : forall rus code rest,
+    lex rus code = ([], rest) -> rest = code.
+Admitted.
+
+Lemma no_tokens_no_pref : forall rus code rest l r,
+  lex rus code = ([], rest)
+  -> In (l, r) rus
+  -> re_max_pref code r [] \/ re_no_max_pref code r.
+Admitted.
+
+Lemma max_pref_unique : forall code r p p',
+  re_max_pref code r p
+  -> re_max_pref code r p'
+  -> p = p'.
+Admitted.
+
+Lemma pref_not_no_pref : forall code p r,
+  re_max_pref code r p
+  -> ~(re_no_max_pref code r).
+Admitted.
+
+Lemma tokens_head : forall code rest rus a ts,
+  lex rus code = (a :: ts, rest)
+  -> first_token rus code a.
+Admitted.
+
+Lemma tokens_tail : forall ts a code rest rus, 
+    lex rus code = (a :: ts, rest)
+    -> exists(p code' : String),
+      p ++ code' ++ rest = code
+      /\ snd a = p
+      /\ lex rus (code' ++ rest) = (ts, rest).
+Admitted.
+
+Theorem lex_tokenizes : forall ts code rest rus,
+    lex rus code = (ts, rest) -> tokenized rus code ts rest.
+Proof.
+  induction ts; intros code rest rus H.
+  {
+    assert (H' := H).
+    apply no_tokens_suffix_self in H'. rewrite H'. apply Tkd0. clear H'.
+    intros t Hfst. inv Hfst. simpl. inv Hex.
+    apply no_tokens_no_pref with (l := l) (r := r) in H. 2: { apply Hex0. }
+    destruct H.
+    - apply max_pref_unique with (p := p) in H. 2: { apply Hmpref. }
+      apply H.
+    - apply pref_not_no_pref in Hmpref. contradiction.    
+  }
+  {
+    assert (H' := H).
+    apply tokens_head in H. apply tokens_tail in H'.
+    destruct H' as (p & code' & H'). destruct H' as (Heq & Hval & IP).
+    apply IHts in IP. subst code. apply Tkd1.
+    - apply H.
+    - apply Hval.
+    - apply IP.
+  }
+Qed.
+
+(********
+
+Graveyard
+
+*********)
 Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :=
 | Tkd (p : Prefix) (s : Suffix) (ts : list Token)
       (H0 : all_tokens rus p ts)
-      (H1 : forall(l : Label) (v : String), first_token rus s (l, v) -> v = []) :
+      (H1 : forall(ts' : list Token) (s' : String), s' ++_= s -> ~(all_tokens rus (p ++ s') ts'))
+      (H2 : forall(l : Label) (v : String), first_token rus s (l, v) -> v = []) :
     tokenized rus (p ++ s) ts s.
 
 Lemma rest_is_suffix : forall(ts : list Token) (code rest : String) (rus : list Rule),
