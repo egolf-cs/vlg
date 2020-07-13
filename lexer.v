@@ -1107,7 +1107,7 @@ Proof.
   induction ts; intros code rest rus H.
   {
     assert (H' := H).
-    apply no_tokens_suffix_self in H'. rewrite H'. apply Tkd0. clear H'.
+    apply no_tokens_suffix_self in H'. rewrite H'. apply Tkd0. subst.
     intros t Hfst. inv Hfst. simpl. inv Hex.
     apply no_tokens_no_pref with (l := l) (r := r) in H. 2: { apply Hex0. }
     destruct H.
