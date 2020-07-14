@@ -245,6 +245,30 @@ Fixpoint lex''
     + apply A2.
 Defined.
 
+Lemma lex''_eq_body : forall rules code x,
+    lex'' rules code = x
+    -> (exists proof,
+          (fun _ =>
+          (let (* find all the maximal prefixes, associating them with a rule as we go *)
+            mprefs := max_prefs code rules
+          in
+          let (* of these maximal prefixes, find the longest *)
+            mpref := max_of_prefs mprefs
+          in
+          match mpref as mpref' return mpref = mpref' -> _ with
+          | (_, None) => fun _ => ([], code) (* Code cannot be processed further *)
+          | (_, Some ([], _)) => fun _ => ([], code) (* Code cannot be processed further *)
+          | (label, Some (prefix, suffix)) =>
+            fun Heq =>
+              match (lex'' rules suffix (proof suffix)) with
+              | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
+              end
+          end eq_refl)) = x).
+Proof.
+  intros rules code.
+Admitted.
+     
+
 (** Attempt to circumvent refine **)
 (*
 Lemma acc_prop_suffix : forall code rules label s l suffix,
@@ -276,7 +300,6 @@ Fixpoint lex'''
       | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
     end
   end eq_refl).
-
 *)
     
 Definition init_srule (rule : Rule) : sRule :=
@@ -288,7 +311,7 @@ Definition lex (rules : list Rule) (code : String) :=
   let
     srules := map init_srule rules
   in
-  lex' srules code.
+  lex'' srules code.
 
 (* destruct a match in a hypothesis *)
 Ltac dmh := match goal with | H : context[match ?x with | _ => _ end] |- _ => destruct x eqn:?E end.
@@ -895,10 +918,10 @@ Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :
     tokenized rus (p ++ s0 ++ s1) (t :: ts) s1.
 
 Lemma no_tokens_suffix_self : forall rus code rest,
-    lex rus code = ([], rest) -> code = rest.
+    lex rus code = (fun _ => ([], rest)) -> code = rest.
 Proof.
   intros rus code rest H.
-  unfold lex in H. rewrite lex'_eq_body in H.
+  unfold lex in H. apply lex''_eq_body in H. destruct H.
   destruct (max_prefs code (map init_srule rus)); simpl in H.
   - injection H. intros I1. apply I1.
   - destruct (longer_pref p (max_of_prefs l)). destruct o.
@@ -967,7 +990,7 @@ Lemma lgr_pref_assoc : forall a b c,
     longer_pref (longer_pref a b) c = longer_pref a (longer_pref b c).
 Proof.
   intros a b c. unfold longer_pref.
-  repeat dm; subst; repeat inj_all; repeat eqb_eq_all; repeat ltb_lt_all;
+  repeat dm; repeat inj_all; subst; repeat eqb_eq_all; repeat ltb_lt_all;
     try(discriminate);
     try(omega);
     try(auto).
