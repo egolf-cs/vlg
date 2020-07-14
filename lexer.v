@@ -246,9 +246,8 @@ Fixpoint lex''
 Defined.
 
 Lemma lex''_eq_body : forall rules code x,
-    lex'' rules code = x
+    lex'' rules code = (fun _ => x)
     -> (exists proof,
-          (fun _ =>
           (let (* find all the maximal prefixes, associating them with a rule as we go *)
             mprefs := max_prefs code rules
           in
@@ -263,9 +262,9 @@ Lemma lex''_eq_body : forall rules code x,
               match (lex'' rules suffix (proof suffix)) with
               | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
               end
-          end eq_refl)) = x).
+          end eq_refl) = x).
 Proof.
-  intros rules code.
+  intros rules code x H.
 Admitted.
      
 
@@ -933,20 +932,12 @@ Proof.
   intros rus code rest H.
   unfold lex in H. apply lex''_eq_body in H. destruct H.
   destruct (max_prefs code (map init_srule rus)); simpl in H.
-  - apply const_eq in H.
-    + injection H. intros I1. apply I1.
-    + apply x. 
+  - injection H. intros I1. apply I1.
   - destruct (longer_pref p (max_of_prefs l)). destruct o.
     + destruct p0. destruct p0.
-      * apply const_eq in H.
-        -- injection H. intros I1. apply I1.
-        -- apply x.
-      * destruct ( lex'' (map init_srule rus) s). apply const_eq in H.
-        -- discriminate.
-        -- apply x.
-    + apply const_eq in H.
       * injection H. intros I1. apply I1.
-      * apply x.
+      * destruct ( lex'' (map init_srule rus) s). discriminate.
+    + injection H. intros I1. apply I1.
 Qed.
 
 Lemma pref_not_no_pref : forall code p r,
