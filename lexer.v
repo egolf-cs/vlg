@@ -917,18 +917,36 @@ Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :
       (IH : tokenized rus (s0 ++ s1) ts s1) :
     tokenized rus (p ++ s0 ++ s1) (t :: ts) s1.
 
+Lemma const_eq : forall (T1 T2 : Type) (x y : T2) (z1 : T1),
+    (fun _ : T1 => x) = (fun _ : T1 => y) -> x = y.
+Proof.
+  intros T1 T2 x y z1 H.
+  assert(A0 : forall (f g : T1 -> T2) z, f = g -> f z = g z).
+  { admit. }
+  apply A0 in H. apply H. apply z1.
+Admitted.
+  
+
 Lemma no_tokens_suffix_self : forall rus code rest,
     lex rus code = (fun _ => ([], rest)) -> code = rest.
 Proof.
   intros rus code rest H.
   unfold lex in H. apply lex''_eq_body in H. destruct H.
   destruct (max_prefs code (map init_srule rus)); simpl in H.
-  - injection H. intros I1. apply I1.
+  - apply const_eq in H.
+    + injection H. intros I1. apply I1.
+    + apply x. 
   - destruct (longer_pref p (max_of_prefs l)). destruct o.
     + destruct p0. destruct p0.
+      * apply const_eq in H.
+        -- injection H. intros I1. apply I1.
+        -- apply x.
+      * destruct ( lex'' (map init_srule rus) s). apply const_eq in H.
+        -- discriminate.
+        -- apply x.
+    + apply const_eq in H.
       * injection H. intros I1. apply I1.
-      * destruct ( lex' (map init_srule rus) s). discriminate.
-    + injection H. intros I1. apply I1.
+      * apply x.
 Qed.
 
 Lemma pref_not_no_pref : forall code p r,
