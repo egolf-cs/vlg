@@ -7,6 +7,12 @@ Require Import Coq.omega.Omega.
 
 From VLG Require Import regex.
 
+(* destruct a match in a hypothesis *)
+Ltac dmh := match goal with | H : context[match ?x with | _ => _ end] |- _ => destruct x eqn:?E end.
+(* destruct a match in the goal *)
+Ltac dmg := match goal with | |- context[match ?x with | _ => _ end] => destruct x eqn:?E end.
+Ltac dm := (first [dmh | dmg]); auto.
+
 Definition Sigma := regex.Sigma.
 Definition Sigma_dec := regex.Sigma_dec.
 Definition String := regex.String.
@@ -155,79 +161,18 @@ Proof.
     + left. apply H.
   - right. apply H.
 Qed.
-    
-Program Fixpoint lex'
-         (rules : list sRule)
-         (code : String)
-         {measure (length code)} : (list Token) * String :=
-  let (* find all the maximal prefixes, associating them with a rule as we go *)
-    mprefs := max_prefs code rules
-  in
-  let (* of these maximal prefixes, find the longest *)
-    mpref := max_of_prefs mprefs
-  in
-  match mpref with
-  | (_, None) => ([], code) (* Code cannot be processed further *)
-  | (_, Some ([], _)) => ([], code) (* Code cannot be processed further *)
-  | (label, Some (prefix, suffix)) =>
-    match (lex' rules suffix) with
-    | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
-    end
-  end.
-Next Obligation.
-  assert (A0 : prefix <> []).
-  {
-    unfold not. intros C. rewrite C in H.
-    specialize (H label). specialize (H suffix).
-    contradiction.
-  }
-  assert (A2 : exists(fsm : State), Some (prefix, suffix) = max_pref_fn code fsm).
-  { 
-    induction rules.
-    - simpl in Heq_mpref. discriminate.
-    - simpl in Heq_mpref. apply max_first_or_rest in Heq_mpref. destruct Heq_mpref.
-      + destruct a in H0. exists s. injection H0. intros I1 I2. apply I1.
-      + apply IHrules.
-        * destruct rules.
-          -- simpl in H0. discriminate.
-          -- apply H0.
-  }
-  destruct A2 as [fsm].
-  apply proper_suffix_shorter with (suffix := suffix) (code := code) (fsm := fsm) in A0.
-  - apply A0.
-  - apply H0.
-Qed.
 
-Fixpoint lex'' 
-         (rules : list sRule)
-         (code : String)
-         (Ha : Acc lt (length code))
-         {struct Ha} : (list Token) * String.
-  refine(
-  let (* find all the maximal prefixes, associating them with a rule as we go *)
-    mprefs := max_prefs code rules
-  in
-  let (* of these maximal prefixes, find the longest *)
-    mpref := max_of_prefs mprefs
-  in
-  match mpref as mpref' return mpref = mpref' -> _ with
-  | (_, None) => fun _ => ([], code) (* Code cannot be processed further *)
-  | (_, Some ([], _)) => fun _ => ([], code) (* Code cannot be processed further *)
-  | (label, Some (prefix, suffix)) => fun Heq =>
-    match (lex'' rules suffix _) with
-    | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
-    end
-  end eq_refl).
+(**)
+Lemma acc_recursive_call :
+  forall code rules label s l suffix,
+    Acc lt (length code)
+    -> max_of_prefs (max_prefs code rules) = (label, Some (s :: l, suffix))
+    -> Acc lt (length suffix).
+Proof.
+  intros code rules label s l suffix Ha Heq.
   apply Acc_inv with (x := length code).
   - apply Ha.
-  - assert (A0 : exists mp, mp = max_of_prefs (max_prefs code rules)).
-    { exists mpref. auto. }
-    destruct A0 as [mp].
-    assert (A1 : mp = mpref).
-    { auto. }
-    rewrite <- A1 in Heq. rewrite H in Heq.
-    clear A1 H mpref mprefs mp p o prefix Ha lex''.
-    assert(A2 : exists(fsm : State), Some (s :: l, suffix) = max_pref_fn code fsm).
+  - assert(A2 : exists(fsm : State), Some (s :: l, suffix) = max_pref_fn code fsm).
     { 
       induction rules.
       - simpl in Heq. discriminate.
@@ -245,61 +190,44 @@ Fixpoint lex''
     + apply A2.
 Defined.
 
-Lemma lex''_eq_body : forall rules code x,
-    lex'' rules code = (fun _ => x)
-    -> (exists proof,
-          (let (* find all the maximal prefixes, associating them with a rule as we go *)
-            mprefs := max_prefs code rules
-          in
-          let (* of these maximal prefixes, find the longest *)
-            mpref := max_of_prefs mprefs
-          in
-          match mpref as mpref' return mpref = mpref' -> _ with
-          | (_, None) => fun _ => ([], code) (* Code cannot be processed further *)
-          | (_, Some ([], _)) => fun _ => ([], code) (* Code cannot be processed further *)
-          | (label, Some (prefix, suffix)) =>
-            fun Heq =>
-              match (lex'' rules suffix (proof suffix)) with
-              | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
-              end
-          end eq_refl) = x).
-Proof.
-  intros rules code x H.
-Admitted.
-     
-
-(** Attempt to circumvent refine **)
-(*
-Lemma acc_prop_suffix : forall code rules label s l suffix,
-  (mprefs :=  max_prefs code rules)
-  -> (mpref := max_of_prefs mprefs)
-  -> mpref = (label, Some (s :: l, suffix))
-  -> Acc lt (length code)
-  -> Acc lt (length suffix).
-Admitted.
-
-Fixpoint lex''' 
+Fixpoint lex'
          (rules : list sRule)
          (code : String)
          (Ha : Acc lt (length code))
          {struct Ha} : (list Token) * String :=
-  let (* find all the maximal prefixes, associating them with a rule as we go *)
-    mprefs := max_prefs code rules
-  in
-  let (* of these maximal prefixes, find the longest *)
-    mpref := max_of_prefs mprefs
-  in
-  match mpref as mpref' return mpref = mpref' -> _ with
+  match max_of_prefs (max_prefs code rules) as mpref'
+        return max_of_prefs (max_prefs code rules) = mpref' -> _
+  with
   | (_, None) => fun _ => ([], code) (* Code cannot be processed further *)
   | (_, Some ([], _)) => fun _ => ([], code) (* Code cannot be processed further *)
   | (label, Some (prefix, suffix)) =>
     fun Heq =>
-      match (lex'' rules suffix (acc_prop_suffix ...))
+      match (lex' rules suffix
+                  (acc_recursive_call _ _ _ _ _ _ Ha Heq))
       with
       | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
-    end
-  end eq_refl).
-*)
+      end
+  end eq_refl.
+
+Lemma lex'_eq_body : forall rules code (Ha : Acc lt (length code)),
+    lex' rules code Ha = 
+    (match max_of_prefs (max_prefs code rules) as mpref'
+           return max_of_prefs (max_prefs code rules) = mpref' -> _
+     with
+     | (_, None) => fun _ => ([], code) (* Code cannot be processed further *)
+     | (_, Some ([], _)) => fun _ => ([], code) (* Code cannot be processed further *)
+     | (label, Some (prefix, suffix)) =>
+       fun Heq =>
+         match (lex' rules suffix
+                     (acc_recursive_call _ _ _ _ _ _ Ha Heq))
+         with
+         | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
+         end
+     end eq_refl).
+Proof.
+  intros rules code Ha. unfold lex'. destruct Ha. auto.
+Qed.
+(**)
     
 Definition init_srule (rule : Rule) : sRule :=
   match rule with
@@ -310,38 +238,7 @@ Definition lex (rules : list Rule) (code : String) :=
   let
     srules := map init_srule rules
   in
-  lex'' srules code.
-
-(* destruct a match in a hypothesis *)
-Ltac dmh := match goal with | H : context[match ?x with | _ => _ end] |- _ => destruct x eqn:?E end.
-(* destruct a match in the goal *)
-Ltac dmg := match goal with | |- context[match ?x with | _ => _ end] => destruct x eqn:?E end.
-Ltac dm := (first [dmh | dmg]); auto.
-
-Theorem lex'_eq_body : forall(rules : list sRule) (code : String),
-    lex' rules code =
-    let (* find all the maximal prefixes, associating them with a rule as we go *)
-      mprefs := max_prefs code rules
-    in
-    let (* of these maximal prefixes, find the longest *)
-      mpref := max_of_prefs mprefs
-    in
-    match mpref with
-    | (_, None) => ([], code) (* Code cannot be processed further *)
-    | (_, Some ([], _)) => ([], code) (* Code cannot be processed further *)
-    | (label, Some (prefix, suffix)) =>
-      match (lex' rules suffix) with
-      | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
-      end
-    end.
-Proof.
-  intros rules code.
-  unfold lex'. unfold lex'_func.
-  rewrite Wf.fix_sub_eq; auto.
-  - simpl; repeat dm.
-  - intros. destruct x. simpl. repeat dm. admit.
-  Admitted.
-  
+  lex' srules code.
   
 (************************************
 *
@@ -916,22 +813,15 @@ Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :
       (IH : tokenized rus (s0 ++ s1) ts s1) :
     tokenized rus (p ++ s0 ++ s1) (t :: ts) s1.
 
-Lemma const_eq : forall (T1 T2 : Type) (x y : T2) (z1 : T1),
-    (fun _ : T1 => x) = (fun _ : T1 => y) -> x = y.
-Proof.
-  intros T1 T2 x y z1 H.
-  assert(A0 : forall (f g : T1 -> T2) z, f = g -> f z = g z).
-  { admit. }
-  apply A0 in H. apply H. apply z1.
-Admitted.
-  
-
 Lemma no_tokens_suffix_self : forall rus code rest,
-    lex rus code = (fun _ => ([], rest)) -> code = rest.
+    lex rus code (lt_wf _) = ([], rest) -> code = rest.
 Proof.
   intros rus code rest H.
-  unfold lex in H. apply lex''_eq_body in H. destruct H.
-  destruct (max_prefs code (map init_srule rus)); simpl in H.
+  unfold lex in H. rewrite lex'_eq_body in H. simpl in H.
+  destruct (max_of_prefs (max_prefs code (map init_srule rus))).
+
+
+  
   - injection H. intros I1. apply I1.
   - destruct (longer_pref p (max_of_prefs l)). destruct o.
     + destruct p0. destruct p0.
