@@ -203,14 +203,14 @@ Fixpoint lex'
   | (label, Some (prefix, suffix)) =>
     fun Heq =>
       match (lex' rules suffix
-                  (acc_recursive_call _ _ _ _ _ _ Ha Heq))
-      with
+                               (acc_recursive_call _ _ _ _ _ _ Ha Heq)) with
       | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
       end
   end eq_refl.
 
-Lemma lex'_eq_body : forall rules code (Ha : Acc lt (length code)),
-    lex' rules code Ha = 
+Lemma lex'_eq_body :
+  forall rules code (Ha : Acc lt (length code)),
+    (lex' rules code Ha = 
     (match max_of_prefs (max_prefs code rules) as mpref'
            return max_of_prefs (max_prefs code rules) = mpref' -> _
      with
@@ -223,10 +223,31 @@ Lemma lex'_eq_body : forall rules code (Ha : Acc lt (length code)),
          with
          | (lexemes, rest) => (((label, prefix) :: lexemes), rest)
          end
-     end eq_refl).
+     end eq_refl)).
 Proof.
   intros rules code Ha. unfold lex'. destruct Ha. auto.
 Qed.
+
+Lemma lex'_cases :
+  forall rules code (Ha : Acc lt (length code)) ts,
+    lex' rules code Ha = ts
+    -> match ts with
+      | ([], rest)
+        => exists label suffix,
+          ts = ([], code) /\
+          ((max_of_prefs (max_prefs code rules) = (label, None))
+          \/ (max_of_prefs (max_prefs code rules) = (label, Some ([], suffix))))
+      | (((label, p :: ps) :: lexemes), rest)
+        => exists suffix Heq,
+          ts = (((label, p :: ps) :: lexemes), rest) /\
+          max_of_prefs (max_prefs code rules) = (label, Some (p :: ps, suffix))
+          /\ (lex' rules suffix
+                  (acc_recursive_call _ rules label p ps _ Ha Heq))
+            = (lexemes, rest)
+      | _ => False
+      end.
+Admitted.
+        
 (**)
     
 Definition init_srule (rule : Rule) : sRule :=
@@ -812,22 +833,20 @@ Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :
       (* The rest of the tokens match the rest of the input *)
       (IH : tokenized rus (s0 ++ s1) ts s1) :
     tokenized rus (p ++ s0 ++ s1) (t :: ts) s1.
+                                                          
 
 Lemma no_tokens_suffix_self : forall rus code rest,
     lex rus code (lt_wf _) = ([], rest) -> code = rest.
 Proof.
   intros rus code rest H.
-  unfold lex in H. rewrite lex'_eq_body in H. simpl in H.
-  destruct (max_of_prefs (max_prefs code (map init_srule rus))).
-
-
-  
-  - injection H. intros I1. apply I1.
-  - destruct (longer_pref p (max_of_prefs l)). destruct o.
+  unfold lex in H. 
+  apply lex'_cases in H. destruct H as (label & suffix & H).
+  destruct H. injection H. intros I1. symmetry. apply I1.
+  (*- destruct (longer_pref p (max_of_prefs l)). destruct o.
     + destruct p0. destruct p0.
       * injection H. intros I1. apply I1.
       * destruct ( lex'' (map init_srule rus) s). discriminate.
-    + injection H. intros I1. apply I1.
+    + injection H. intros I1. apply I1. *)
 Qed.
 
 Lemma pref_not_no_pref : forall code p r,
@@ -967,17 +986,28 @@ Proof.
   - apply H.
 Qed.
 
-Lemma no_tokens_no_pref : forall code rest rus l r,
-  lex rus code = ([], rest)
+Lemma no_tokens_no_pref : forall code rest rus l r Ha,
+  lex rus code Ha = ([], rest)
   -> In (l, r) rus
   -> re_max_pref code r [] \/ re_no_max_pref code r.
 Proof.
-  intros code rest rus l r Hlex Hin.
-  unfold lex in Hlex. rewrite lex'_eq_body in Hlex.
-  destruct (max_prefs code (map init_srule rus)) eqn:E0; simpl in Hlex.
+  intros code rest rus l r Ha Hlex Hin.
+  unfold lex in Hlex. apply lex'_cases in Hlex.
+  destruct Hlex as (label & suffix & H). destruct H as (Heq & H).
+  destruct H; destruct (max_prefs code (map init_srule rus)) eqn:E0; simpl in H.
   - assert(C : rus = []).
-    { destruct rus. reflexivity. simpl in E0. discriminate. }
-    rewrite C in Hin. contradiction.
+      { destruct rus. reflexivity. simpl in E0. discriminate. }
+      subst. contradiction.
+  - destruct (longer_pref p (max_of_prefs l0)) eqn:E1.
+    replace (longer_pref p (max_of_prefs l0))
+      with (max_of_prefs (p :: l0)) in E1. 2: { reflexivity. }
+    rewrite <- E0 in E1.
+    destruct o.
+    + discriminate.
+    + apply no_mpref_no_pref with (l := l) (r := r) in E1.
+      * right. apply E1.
+      * apply Hin.
+  - discriminate.
   - destruct (longer_pref p (max_of_prefs l0)) eqn:E1.
     replace (longer_pref p (max_of_prefs l0))
       with (max_of_prefs (p :: l0)) in E1. 2: { reflexivity. }
@@ -987,10 +1017,8 @@ Proof.
       * apply nil_mpref_nil_or_no_pref with (l := l) (r := r) in E1.
         -- apply E1.
         -- apply Hin.
-      * destruct (lex' (map init_srule rus) s). discriminate.
-    + right. apply no_mpref_no_pref with (l := l) (r := r) in E1.
-      * apply E1.
-      * apply Hin.
+      * discriminate.
+    + discriminate.
 Qed.
 
 Lemma max_pref_unique : forall code r p p',
