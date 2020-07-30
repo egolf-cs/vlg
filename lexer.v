@@ -944,14 +944,12 @@ Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :
        then the input is tokenized by the empty list 
        of tokens and itself *)
     tokenized rus code [] code
-| Tkd1 (p : Prefix) (s0 s1 : Suffix) (t : Token) (ts : list Token)
+| Tkd1 (p : Prefix) (s0 s1 : Suffix) (ts : list Token) (l : Label)
       (* the first token matches the input *)
-      (H0 : first_token (p ++ s0 ++ s1) rus t)
-      (* the first token matches the relevant prefix *)
-      (H1 : snd t = p)
+      (H0 : first_token (p ++ s0 ++ s1) rus (l,p))
       (* The rest of the tokens match the rest of the input *)
       (IH : tokenized rus (s0 ++ s1) ts s1) :
-    tokenized rus (p ++ s0 ++ s1) (t :: ts) s1.
+    tokenized rus (p ++ s0 ++ s1) ((l, p) :: ts) s1.
 
 Definition rules_is_function (rus : list Rule) :=
   forall l r r', In (l, r) rus
@@ -1451,13 +1449,65 @@ Proof.
   apply first_token_mpref with (suffix := suffix). apply Heq'.
 Qed.
 
-Lemma tokens_tail : forall ts a code rest rus, 
-    lex rus code (lt_wf _) = (a :: ts, rest)
+Lemma partial_lex'_constant : forall rus code Ha,
+    lex' rus code = (fun _ => lex' rus code Ha).
+Admitted.
+
+Lemma apply_constant_fun : forall (T1 T2 : Type) (f : T1 -> T2) (x : T1) (y : T2),
+    f = (fun _ => y) -> f x = y.
+Proof.
+  intros. rewrite H. reflexivity.
+Qed.
+
+Lemma lex'_Ha_moot : forall code rus Ha Ha',
+    lex' rus code Ha = lex' rus code Ha'.
+Proof.
+  intros.
+  assert(H := partial_lex'_constant rus code Ha).
+  apply apply_constant_fun with (f := lex' rus code) (x := Ha') in H.
+  auto.
+Qed.
+    
+Lemma exploit_moot_Ha : forall rus l ph pt suffix code Heq,
+  lex' (map init_srule rus) suffix
+       (acc_recursive_call code (map init_srule rus) l
+                           ph pt suffix (lt_wf (length code)) Heq)
+  = lex' (map init_srule rus) suffix
+         (lt_wf (length suffix)).
+Proof.
+  intros. apply lex'_Ha_moot.
+Qed.
+
+Lemma tokens_tail : forall ts l p code rest rus, 
+    lex rus code (lt_wf _) = ((l, p) :: ts, rest)
     -> rules_is_function rus
-    -> exists(p code' : String),
+    -> exists(code' : String),
       p ++ code' ++ rest = code
-      /\ snd a = p
       /\ lex rus (code' ++ rest) (lt_wf _) = (ts, rest).
+Proof.
+  intros ts l p code rest rus Hlex Hfunc.
+  unfold lex in Hlex. apply lex'_cases in Hlex.
+  destruct Hlex as (ph & pt & suffix & Hlex). destruct Hlex as (Heq & Hlex).
+  destruct Hlex as (Hlex & Hnempt).
+  subst.
+  assert(Asplit : (ph :: pt) ++ suffix = code).
+  {
+    assert(Heq' := Heq).
+    apply exists_rus_of_mpref in Heq'.
+    destruct Heq' as (r & Heq'). destruct Heq'.
+    symmetry in H0.
+    assert(L := max_pref_fn_splits _ _ _ _ H0).
+    auto.
+  }
+  assert(Acode' : exists code', suffix = code' ++ rest).
+  {
+    admit.
+  }
+  destruct Acode' as (code' & Acode'). rewrite Acode' in Asplit.
+  exists code'. split.
+  - apply Asplit.
+  - rewrite <- Acode' in *. clear Acode'. unfold lex.
+    rewrite exploit_moot_Ha in Hlex. apply Hlex.
 Admitted.
 
 Theorem lex_tokenizes : forall ts code rest rus,
@@ -1478,11 +1528,10 @@ Proof.
   }
   {
     assert (H' := H).
-    apply tokens_head in H; auto. apply tokens_tail in H'; auto.
-    destruct H' as (p & code' & H'). destruct H' as (Heq & Hval & IP).
+    apply tokens_head in H; auto. destruct a. apply tokens_tail in H'; auto.
+    destruct H' as (code' & H'). destruct H' as (Heq & IP).
     apply IHts in IP; auto. subst code. apply Tkd1.
     - apply H.
-    - apply Hval.
     - apply IP.
   }
 Qed.
