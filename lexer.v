@@ -385,6 +385,12 @@ Definition lex (rules : list Rule) (code : String) :=
   let
     srules := map init_srule rules
   in
+  lex' srules code (lt_wf _).
+
+Definition lex'' (rules : list Rule) (code : String) :=
+  let
+    srules := map init_srule rules
+  in
   lex' srules code.
   
 (************************************
@@ -393,8 +399,6 @@ Definition lex (rules : list Rule) (code : String) :=
 *
 ************************************)                 
   
-
-(* This doesn't ~need~ to be inductive *)
 Inductive is_prefix : String -> String -> Prop :=
   | pref_def p s
          (H1 : exists q, p ++ q = s) :
@@ -957,10 +961,9 @@ Definition rules_is_function (rus : list Rule) :=
             -> r = r'.                                       
 
 Lemma no_tokens_suffix_self : forall rus code rest,
-    lex rus code (lt_wf _) = ([], rest) -> code = rest.
+    lex' rus code (lt_wf _) = ([], rest) -> code = rest.
 Proof.
   intros rus code rest H.
-  unfold lex in H. 
   apply lex'_cases in H. destruct H.
   symmetry. apply H.
 Qed.
@@ -1204,12 +1207,13 @@ Proof.
 Qed.
 
 Lemma no_tokens_no_pref : forall code rest rus l r,
-  lex rus code (lt_wf _) = ([], rest)
+  lex' (map init_srule rus) code (lt_wf _) = ([], rest)
   -> In (l, r) rus
   -> re_max_pref code r [] \/ re_no_max_pref code r.
 Proof.
   intros code rest rus l r Hlex Hin.
-  unfold lex in Hlex. apply lex'_cases in Hlex. destruct Hlex.
+  unfold lex'' in Hlex.
+  apply lex'_cases in Hlex. destruct Hlex.
   destruct H0; destruct (max_of_prefs (max_prefs code (map init_srule rus))) eqn:E0;
     simpl in H0; [| destruct H0 as (suf & H0)]; rewrite H0 in E0.
   - apply no_mpref_no_pref with (l := l) (r := r) in E0.
@@ -1439,54 +1443,29 @@ Qed.
     
 
 Lemma tokens_head : forall code rest rus a ts,
-    lex rus code (lt_wf _) = (a :: ts, rest)
+    lex' (map init_srule rus) code (lt_wf _) = (a :: ts, rest)
     -> rules_is_function rus
     -> first_token code rus a.
 Proof.
   intros code rest rus a ts Hlex.
-  unfold lex in Hlex. apply lex'_cases in Hlex. destruct a eqn:E0.
+  apply lex'_cases in Hlex. destruct a eqn:E0.
   destruct Hlex as (ph & pt & suffix & Heq' & Hlex). destruct Hlex as (Hlex & Heq). subst.
   apply first_token_mpref with (suffix := suffix). apply Heq'.
 Qed.
 
-Lemma partial_lex'_constant : forall rus code Ha,
-    lex' rus code = (fun _ => lex' rus code Ha).
+Lemma lex'_Ha_moot : forall code rus Ha Ha',
+    lex' (map init_srule rus) code Ha = lex' (map init_srule rus) code Ha'.
 Admitted.
 
-Lemma apply_constant_fun : forall (T1 T2 : Type) (f : T1 -> T2) (x : T1) (y : T2),
-    f = (fun _ => y) -> f x = y.
-Proof.
-  intros. rewrite H. reflexivity.
-Qed.
-
-Lemma lex'_Ha_moot : forall code rus Ha Ha',
-    lex' rus code Ha = lex' rus code Ha'.
-Proof.
-  intros.
-  assert(H := partial_lex'_constant rus code Ha).
-  apply apply_constant_fun with (f := lex' rus code) (x := Ha') in H.
-  auto.
-Qed.
-    
-Lemma exploit_moot_Ha : forall rus l ph pt suffix code Heq,
-  lex' (map init_srule rus) suffix
-       (acc_recursive_call code (map init_srule rus) l
-                           ph pt suffix (lt_wf (length code)) Heq)
-  = lex' (map init_srule rus) suffix
-         (lt_wf (length suffix)).
-Proof.
-  intros. apply lex'_Ha_moot.
-Qed.
-
-Lemma tokens_tail : forall ts l p code rest rus, 
-    lex rus code (lt_wf _) = ((l, p) :: ts, rest)
+Lemma tokens_tail : forall code Ha ts l p rest rus, 
+    lex' (map init_srule rus) code Ha = ((l, p) :: ts, rest)
     -> rules_is_function rus
-    -> exists(code' : String),
+    -> exists(code' : String) Ha',
       p ++ code' ++ rest = code
-      /\ lex rus (code' ++ rest) (lt_wf _) = (ts, rest).
+      /\ lex' (map init_srule rus) (code' ++ rest) Ha' = (ts, rest).
 Proof.
-  intros ts l p code rest rus Hlex Hfunc.
-  unfold lex in Hlex. apply lex'_cases in Hlex.
+  intros code Ha ts l p rest rus Hlex Hfunc.
+  apply lex'_cases in Hlex.
   destruct Hlex as (ph & pt & suffix & Hlex). destruct Hlex as (Heq & Hlex).
   destruct Hlex as (Hlex & Hnempt).
   subst.
@@ -1501,17 +1480,18 @@ Proof.
   }
   assert(Acode' : exists code', suffix = code' ++ rest).
   {
+    subst.
     admit.
   }
   destruct Acode' as (code' & Acode'). rewrite Acode' in Asplit.
-  exists code'. split.
-  - apply Asplit.
-  - rewrite <- Acode' in *. clear Acode'. unfold lex.
-    rewrite exploit_moot_Ha in Hlex. apply Hlex.
+  subst.
+  exists code'. eexists. split.
+  - auto.
+  - eauto.
 Admitted.
 
-Theorem lex_tokenizes : forall ts code rest rus,
-    lex rus code (lt_wf _) = (ts, rest)
+Theorem lex'_sound : forall ts code rest rus,
+    lex' (map init_srule rus) code (lt_wf _) = (ts, rest)
     -> rules_is_function rus
     -> tokenized rus code ts rest.
 Proof.
@@ -1528,12 +1508,22 @@ Proof.
   }
   {
     assert (H' := H).
-    apply tokens_head in H; auto. destruct a. apply tokens_tail in H'; auto.
-    destruct H' as (code' & H'). destruct H' as (Heq & IP).
-    apply IHts in IP; auto. subst code. apply Tkd1.
+    apply tokens_head in H; auto. destruct a.
+
+    apply tokens_tail in H'; auto.
+    destruct H' as (code' & H'). destruct H' as (Ha & H'). destruct H' as (Heq & IP).
+    subst code. apply Tkd1.
     - apply H.
-    - apply IP.
+    - apply IHts; auto. rewrite lex'_Ha_moot with (Ha' := Ha). auto.
   }
+Qed.
+
+Theorem lex_sound : forall ts code rest rus,
+    lex rus code = (ts, rest)
+    -> rules_is_function rus
+    -> tokenized rus code ts rest.
+Proof.
+  intros. unfold lex in H. apply lex'_sound in H; auto.
 Qed.
            
              
