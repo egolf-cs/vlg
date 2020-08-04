@@ -960,10 +960,10 @@ Definition rules_is_function (rus : list Rule) :=
             -> In (l, r') rus
             -> r = r'.                                       
 
-Lemma no_tokens_suffix_self : forall rus code rest,
-    lex' rus code (lt_wf _) = ([], rest) -> code = rest.
+Lemma no_tokens_suffix_self : forall rus code rest Ha,
+    lex' rus code Ha = ([], rest) -> code = rest.
 Proof.
-  intros rus code rest H.
+  intros rus code rest Ha H.
   apply lex'_cases in H. destruct H.
   symmetry. apply H.
 Qed.
@@ -1452,10 +1452,28 @@ Proof.
   destruct Hlex as (ph & pt & suffix & Heq' & Hlex). destruct Hlex as (Hlex & Heq). subst.
   apply first_token_mpref with (suffix := suffix). apply Heq'.
 Qed.
-
-Lemma lex'_Ha_moot : forall code rus Ha Ha',
-    lex' (map init_srule rus) code Ha = lex' (map init_srule rus) code Ha'.
-Admitted.
+    
+Lemma lex'_splits : forall ts code rest rus Ha,
+  lex' (map init_srule rus) code Ha = (ts, rest)
+  -> code = (concat (map snd ts)) ++ rest.
+Proof.
+  induction ts; intros code rest rus Ha H.
+  {
+    simpl. apply no_tokens_suffix_self in H. auto.
+  }
+  {
+    destruct a. apply lex'_cases in H.
+    destruct H as (h & t & H). destruct H as (s & Heq & H).
+    destruct H. apply IHts in H.
+    apply exists_rus_of_mpref in Heq. destruct Heq. destruct H1.
+    symmetry in H2. apply max_pref_fn_splits in H2.
+    subst. simpl.
+    replace ((t ++ concat (map snd ts)) ++ rest)
+      with (t ++ concat (map snd ts) ++ rest).
+    2:{ apply app_assoc. }
+    reflexivity.
+  }
+Qed.
 
 Lemma tokens_tail : forall code Ha ts l p rest rus, 
     lex' (map init_srule rus) code Ha = ((l, p) :: ts, rest)
@@ -1480,14 +1498,17 @@ Proof.
   }
   assert(Acode' : exists code', suffix = code' ++ rest).
   {
-    subst.
-    admit.
+    subst. apply lex'_splits in Hlex. eexists. eauto.
   }
   destruct Acode' as (code' & Acode'). rewrite Acode' in Asplit.
   subst.
   exists code'. eexists. split.
   - auto.
   - eauto.
+Qed.
+
+Lemma lex'_Ha_moot : forall code rus Ha Ha',
+    lex' (map init_srule rus) code Ha = lex' (map init_srule rus) code Ha'.
 Admitted.
 
 Theorem lex'_sound : forall ts code rest rus,
@@ -1495,6 +1516,7 @@ Theorem lex'_sound : forall ts code rest rus,
     -> rules_is_function rus
     -> tokenized rus code ts rest.
 Proof.
+  
   induction ts; intros code rest rus H Hfunc.
   {
     assert (H' := H).
@@ -1509,7 +1531,6 @@ Proof.
   {
     assert (H' := H).
     apply tokens_head in H; auto. destruct a.
-
     apply tokens_tail in H'; auto.
     destruct H' as (code' & H'). destruct H' as (Ha & H'). destruct H' as (Heq & IP).
     subst code. apply Tkd1.
