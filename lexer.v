@@ -1546,8 +1546,23 @@ Theorem lex_sound : forall ts code rest rus,
 Proof.
   intros. unfold lex in H. apply lex'_sound in H; auto.
 Qed.
+
+Lemma tokenization_unique : forall ts ts' rest rest' code rus,
+    tokenized rus code ts rest
+    -> tokenized rus code ts' rest'
+    -> (ts, rest) = (ts', rest').
+Admitted.
            
-             
+Theorem lex_correct : forall ts code rest rus,
+    tokenized rus code ts rest
+    -> rules_is_function rus
+    -> lex rus code = (ts, rest).
+Proof.
+  intros.
+  destruct (lex rus code) eqn:E. apply lex_sound in E; auto.
+  eapply tokenization_unique; eauto.
+Qed.
+  
               
             
       
