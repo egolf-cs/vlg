@@ -390,17 +390,35 @@ Definition init_srule (rule : Rule) : sRule :=
   | (label, re) => (label, init_state re)
   end.
 
+Definition init_srule_inv (srule : sRule) : Rule :=
+  match srule with
+  | (label, fsm) => (label, init_state_inv fsm)
+  end.
+
+Lemma srule_inv_correct : forall rus,
+    init_srule_inv (init_srule rus) = rus
+    /\ init_srule (init_srule_inv rus) = rus.
+Proof.
+  split; induction rus; auto.
+Qed.
+
+Lemma map_inv : forall (T : Type) (xs : list T) (f f' : T -> T),
+    (forall x, f' (f x) = x)
+    -> (map f' (map f xs)) = xs.
+Proof.
+  intros T. induction xs; intros; auto.
+  repeat rewrite map_cons.
+  assert(A : f' (f a) = a); auto.
+  apply IHxs in H. rewrite A. rewrite H.
+  auto.
+Qed.
+  
 Definition lex (rules : list Rule) (code : String) :=
   let
     srules := map init_srule rules
   in
   lex' srules code (lt_wf _).
 
-Definition lex'' (rules : list Rule) (code : String) :=
-  let
-    srules := map init_srule rules
-  in
-  lex' srules code.
   
 (************************************
 *
@@ -941,7 +959,7 @@ Inductive first_token : String -> (list Rule) -> Token -> Prop :=
    must match s1 *)
 Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :=
 | Tkd0 (code : String)
-       (H : forall(t : Token), first_token code rus t -> snd t = []) :
+       (H : forall(t : Token), ~first_token code rus t) :
     (* If no tokens can be produced from the input,
        then the input is tokenized by the empty list 
        of tokens and itself *)     
@@ -956,7 +974,35 @@ Inductive tokenized (rus : list Rule) : String -> list Token -> String -> Prop :
 Definition rules_is_function (rus : list Rule) :=
   forall l r r', In (l, r) rus
             -> In (l, r') rus
-            -> r = r'.                                       
+            -> r = r'.
+
+Definition srules_is_function (rus : list sRule) :=
+  forall l f f', In (l, f) rus
+            -> In (l, f') rus
+            -> f = f'.
+
+Lemma is_function_init : forall rus,
+    rules_is_function rus <-> srules_is_function (map init_srule rus).
+Proof.
+  intros. split; intros.
+  {
+    unfold rules_is_function in H.
+    unfold srules_is_function. intros l f f'. intros.
+    apply in_map_iff in H0. apply in_map_iff in H1.
+    do 2 destruct H0. do 2 destruct H1.
+    destruct x. destruct x0.
+    simpl in H0. simpl in H1.
+    repeat inj_all.
+    apply H with (r := r0) in H2; auto.
+  }
+  {
+    unfold srules_is_function in H.
+    unfold rules_is_function. intros l r r'. intros.
+    apply in_map with (f := init_srule) in H0. simpl in H0.
+    apply in_map with (f := init_srule) in H1. simpl in H1.
+    apply H with (f := init_state r') in H0; auto.
+  }
+Qed.
 
 Lemma no_tokens_suffix_self : forall rus code rest Ha,
     lex' rus code Ha = ([], rest) -> code = rest.
@@ -1131,9 +1177,9 @@ Proof.
   intros ps p. simpl. reflexivity.
 Qed.
                                              
-Lemma nil_mpref_nil_or_no_pref : forall rus code s l l1 r,
-  max_of_prefs (max_prefs code (map init_srule rus)) = (l1, Some ([], s))
-  -> In (l, r) rus
+Lemma nil_mpref_nil_or_no_pref : forall srus code s l l1 r,
+  max_of_prefs (max_prefs code srus) = (l1, Some ([], s))
+  -> In (l, r) (map init_srule_inv srus)
   -> re_max_pref code r [] \/ re_no_max_pref code r.
 Proof.
   intros rus code s l l1 r Hmax Hin. assert(L := re_pref_or_no_pref code r).
@@ -1145,8 +1191,19 @@ Proof.
       replace (r) with (init_state_inv (init_state r)) in H.
       2: { apply invert_init_correct. }
       apply re_max_pref_correct__Some in H. destruct H as [q]. symmetry in H.
-      assert(L := (part_around_in _ rus (l, r)) Hin).
-      destruct L as (rus1 & rus2 & L). subst rus. clear Hin.
+
+      
+      assert(Ainv : exists rx_rus, rx_rus = map init_srule_inv rus).
+      { eexists. eauto. }
+      destruct Ainv as [rx_rus]. rewrite <- H0 in *.
+      assert(L := (part_around_in _ rx_rus (l, r)) Hin).
+      destruct L as (rus1 & rus2 & L). subst rx_rus.
+      apply f_equal with (f := map init_srule) in L.
+      rewrite map_inv with (f' := init_srule) (f := init_srule_inv) in L.
+      2:{ apply srule_inv_correct. }
+      rewrite L in *.
+      clear Hin.
+      
       rewrite map_app in Hmax. rewrite map_cons in Hmax. simpl in Hmax.
       unfold max_prefs in Hmax. rewrite map_app in Hmax. rewrite map_cons in Hmax. simpl in Hmax.
       rewrite H in Hmax. rewrite mpref_app_dist in Hmax. rewrite mpref_cons in Hmax.
@@ -1166,9 +1223,9 @@ Proof.
   - right. apply H.
 Qed.
 
-Lemma no_mpref_no_pref : forall rus code l l1 r,
-  max_of_prefs (max_prefs code (map init_srule rus)) = (l1, None)
-  -> In (l, r) rus
+Lemma no_mpref_no_pref : forall srus code l l1 r,
+  max_of_prefs (max_prefs code srus) = (l1, None)
+  -> In (l, r) (map init_srule_inv srus)
   -> re_no_max_pref code r.
 Proof.
   intros rus code l l1 r Hmax Hin. assert(L := re_pref_or_no_pref code r).
@@ -1177,8 +1234,17 @@ Proof.
     destruct H. replace (r) with (init_state_inv (init_state r)) in H.
     2: { apply invert_init_correct. }
     apply re_max_pref_correct__Some in H. destruct H as [q]. symmetry in H.
-    assert(L := (part_around_in _ rus (l, r)) Hin).
-    destruct L as (rus1 & rus2 & L). subst rus. clear Hin.
+    assert(Ainv : exists rx_rus, rx_rus = map init_srule_inv rus).
+    { eexists. eauto. }
+    destruct Ainv as [rx_rus]. rewrite <- H0 in *.
+    assert(L := (part_around_in _ rx_rus (l, r)) Hin).
+    destruct L as (rus1 & rus2 & L). subst rx_rus.
+    apply f_equal with (f := map init_srule) in L.
+    rewrite map_inv with (f' := init_srule) (f := init_srule_inv) in L.
+    2:{ apply srule_inv_correct. }
+    rewrite L in *.
+    clear Hin.
+    unfold max_prefs in Hmax.
     rewrite map_app in Hmax. rewrite map_cons in Hmax. simpl in Hmax.
     unfold max_prefs in Hmax. rewrite map_app in Hmax. rewrite map_cons in Hmax. simpl in Hmax.
     rewrite H in Hmax. rewrite mpref_app_dist in Hmax. rewrite mpref_cons in Hmax.
@@ -1189,15 +1255,14 @@ Proof.
   - apply H.
 Qed.
 
-Lemma no_tokens_no_pref : forall code rest rus l r,
-  lex' (map init_srule rus) code (lt_wf _) = ([], rest)
-  -> In (l, r) rus
+Lemma no_tokens_no_pref : forall code rest (srus : list sRule) l r Ha,
+  lex' srus code Ha = ([], rest)
+  -> In (l, r) (map init_srule_inv srus)
   -> re_max_pref code r [] \/ re_no_max_pref code r.
 Proof.
-  intros code rest rus l r Hlex Hin.
-  unfold lex'' in Hlex.
+  intros code rest srus l r Ha Hlex Hin.
   apply lex'_cases in Hlex. destruct Hlex.
-  destruct H0; destruct (max_of_prefs (max_prefs code (map init_srule rus))) eqn:E0;
+  destruct H0; destruct (max_of_prefs (max_prefs code srus)) eqn:E0;
     simpl in H0; [| destruct H0 as (suf & H0)]; rewrite H0 in E0.
   - apply no_mpref_no_pref with (l := l) (r := r) in E0.
     + right. apply E0.
@@ -1276,12 +1341,12 @@ Proof.
       * simpl. simpl in H5. rewrite H5. auto.
 Qed.
                        
-Lemma exists_rus_of_mpref : forall rus code l ph pt suffix,
-  max_of_prefs (max_prefs code (map init_srule rus)) = (l, Some (ph :: pt, suffix))
-  -> (exists r, In (l, r) rus
-          /\ max_pref_fn code (init_state r) = Some (ph :: pt, suffix)).
+Lemma exists_rus_of_mpref : forall srus code l ph pt suffix,
+  max_of_prefs (max_prefs code srus) = (l, Some (ph :: pt, suffix))
+  -> (exists f, In (l, f) srus
+          /\ max_pref_fn code f = Some (ph :: pt, suffix)).
 Proof.
-  induction rus; intros.
+  induction srus; intros.
   {
     simpl in H. discriminate.
   }
@@ -1290,36 +1355,48 @@ Proof.
     repeat first [rewrite map_cons in H | rewrite map_app in H].
     symmetry in H. apply max_first_or_rest in H. destruct H.
     - destruct a. simpl in H. injection H; intros; subst.
-      exists r. split.
+      exists s. split.
       * left. auto.
       * auto.
-    - symmetry in H. apply IHrus in H. destruct H as [r]. destruct H.
-      exists r. split.
+    - replace (map (extract_fsm_for_max code) srus)
+        with (max_prefs code srus) in H; auto.
+      symmetry in H. apply IHsrus in H. destruct H as [f]. destruct H.
+      exists f. split.
       + right. apply H.
       + apply H0.
   }
 Qed.
 
-Lemma first_token_mpref : forall rus code l ph pt suffix,
-    max_of_prefs (max_prefs code (map init_srule rus)) = (l, Some (ph :: pt, suffix))
-    -> rules_is_function rus
-    -> first_token code rus (l, ph :: pt).
+
+Lemma first_token_mpref : forall srus code l ph pt suffix,
+    max_of_prefs (max_prefs code srus) = (l, Some (ph :: pt, suffix))
+    -> srules_is_function srus
+    -> first_token code (map init_srule_inv srus) (l, ph :: pt).
+Admitted.
+(*
 Proof.      
-  intros rus code l ph pt suffix H Hfunc.
-  assert(Aex := exists_rus_of_mpref rus code l ph pt suffix H).
-  destruct Aex as [r]. destruct H0 as (Hin & Hmpref_fn).
-  assert(Hmpref : re_max_pref code r (ph :: pt)).
-  { apply re_max_pref_correct__Some. exists suffix. symmetry. apply Hmpref_fn. }
-  apply FT1 with (r := r).
+  intros srus code l ph pt suffix H Hfunc.
+  assert(Aex := exists_rus_of_mpref srus code l ph pt suffix H).
+  destruct Aex as [f]. destruct H0 as (Hin & Hmpref_fn).
+  assert(Hmpref : max_pref code f (ph :: pt)).
+  { apply max_pref_correct__Some. exists suffix. symmetry. apply Hmpref_fn. }
+  apply FT1 with (r := (init_state_inv f)).
   - intros C. discriminate.
-  - apply Hin.
-  - apply Hmpref.
+  - apply in_map with (f := init_srule_inv) in Hin. simpl in Hin. auto.
+  - apply re_max_pref_correct__Some. eexists. eauto.
   - intros l0 r0 p0 Hlen Hmpref'. intros C.
     apply re_max_pref_correct__Some with (fsm := init_state r0) in Hmpref'. destruct Hmpref'.
     assert(Ain : In (l0, max_pref_fn code (init_state r0))
-                   (max_prefs code (map init_srule rus))).
+                   (max_prefs code srus)).
     {
-      apply part_around_in in C. destruct C as (rus1 & rus2 & C). rewrite C.
+
+      apply part_around_in in C. destruct C as (rus1 & rus2 & C).
+      apply f_equal with (f := map init_srule) in C.
+      rewrite map_inv with
+          (f' := init_srule)
+          (f := init_srule_inv) in C.
+      2:{ apply srule_inv_correct. }
+      rewrite C.
       unfold max_prefs. repeat rewrite map_app. repeat rewrite map_cons. simpl.
       apply in_or_app. right. simpl. left. reflexivity.
     }
@@ -1334,7 +1411,7 @@ Proof.
       * ltb_lt_all. omega.
     + rewrite <- H0 in Ain. apply Ain.
     + rewrite <- H0 in Aneq. apply Aneq.
-    + inv Hmpref. apply H1.
+    + inv Hmpref. inv H1. destruct H2. inv H2. auto.
     + assert(A : exists q, Some (p0, q) = max_pref_fn code (init_state r0)).
       { exists x. apply H0. }
       apply re_max_pref_correct__Some in A. inv A. apply H1.
@@ -1354,7 +1431,18 @@ Proof.
     }
     assert(Aneq : l <> l0).
     {
-      intros C. subst. unfold rules_is_function in Hfunc.
+      intros C. subst.
+      unfold srules_is_function in Hfunc.
+      apply Hfunc with (f := (init_state r0)) in Hin.
+      2:{
+        apply in_map with (f := init_srule) in Hin0.
+        rewrite map_inv with
+            (f' := init_srule)
+            (f := init_srule_inv) in Hin0.
+        2:{ apply srule_inv_correct. }
+        simpl in Hin0. auto.
+      }
+      unfold rules_is_function in Hfunc.
       apply Hfunc with (r := r0) in Hin.
       2:{ apply Hin0. }
       subst. inv Hearly. apply In_least_index in Hin0.
@@ -1406,7 +1494,9 @@ Proof.
       repeat inj_all; subst; repeat ltb_lt_all; repeat eqb_eq_all; subst;
         try(omega); try(contradiction); try(discriminate).
 Qed.
-    
+*)
+
+(*
 Lemma tokens_head : forall code rest rus a ts,
     lex' (map init_srule rus) code (lt_wf _) = (a :: ts, rest)
     -> rules_is_function rus
@@ -1416,8 +1506,9 @@ Proof.
   apply lex'_cases in Hlex. destruct a eqn:E0.
   destruct Hlex as (ph & pt & suffix & Heq' & Hlex). destruct Hlex as (Hlex & Heq). subst.
   apply first_token_mpref with (suffix := suffix). apply Heq'.
-Qed.
-    
+Qed.*)
+
+(*
 Lemma lex'_splits : forall ts code rest rus Ha,
   lex' (map init_srule rus) code Ha = (ts, rest)
   -> code = (concat (map snd ts)) ++ rest.
@@ -1439,7 +1530,9 @@ Proof.
     reflexivity.
   }
 Qed.
+*)
 
+(*
 Lemma tokens_tail : forall code Ha ts l p rest rus, 
     lex' (map init_srule rus) code Ha = ((l, p) :: ts, rest)
     -> rules_is_function rus
@@ -1471,17 +1564,41 @@ Proof.
   - auto.
   - eauto.
 Qed.
+*)
 
+(*
 Lemma lex'_Ha_moot : forall code rus Ha Ha',
     lex' (map init_srule rus) code Ha = lex' (map init_srule rus) code Ha'.
-Admitted.
+Admitted.*)
 
-Theorem lex'_sound : forall ts code rest rus,
-    lex' (map init_srule rus) code (lt_wf _) = (ts, rest)
-    -> rules_is_function rus
-    -> tokenized rus code ts rest.
+Theorem lex'_sound : forall code (Ha : Acc lt (length code)) len ts rest srus,
+    length code = len
+    -> lex' srus code Ha = (ts, rest)
+    -> srules_is_function srus
+    -> tokenized (map init_srule_inv srus) code ts rest.
 Proof.
-  
+  intros code. destruct code; [|induction Ha]; intros. 
+  {
+    destruct ts.
+    - assert(A : rest = []).
+      { apply no_tokens_suffix_self in H0. auto. }
+      subst. apply Tkd0. intros t Hfst.
+      inv Hfst. inv Hmpref. inv H2. inv H5.
+      apply empty_app in H. inv H. contradiction.
+    - apply lex'_cases in H0. destruct t.
+      destruct H0 as (h & t & H0). destruct H0 as (s & Heq & H0).
+      assert(Heq' := Heq).
+      apply exists_rus_of_mpref in Heq'.
+      inv Heq'. destruct H2. symmetry in H2. apply max_pref_fn_splits in H2.
+      discriminate.
+  }
+  {
+    assert (Ha' := Ha). inv Ha'.
+    apply H0 with (y := 0) (len := 0); auto.
+    (* x = length code, so this holds? *) admit.
+  }
+Admitted.
+(*
   induction ts; intros code rest rus H Hfunc.
   {
     assert (H' := H).
@@ -1502,14 +1619,19 @@ Proof.
     - apply H.
     - apply IHts; auto. rewrite lex'_Ha_moot with (Ha' := Ha). auto.
   }
-Qed.
+Qed.*)
 
 Theorem lex_sound : forall ts code rest rus,
     lex rus code = (ts, rest)
     -> rules_is_function rus
     -> tokenized rus code ts rest.
 Proof.
-  intros. unfold lex in H. apply lex'_sound in H; auto.
+  intros. unfold lex in H.
+  assert(A : srules_is_function (map init_srule rus)).
+  { apply is_function_init in H0. auto. }
+  apply lex'_sound in H; auto.
+  rewrite map_inv in H; auto.
+  intros. apply srule_inv_correct.
 Qed.
 
 Lemma eq_LI_eq_ru : forall rus ru1 ru2 n,
@@ -1564,7 +1686,7 @@ Proof.
   - inv H. auto.
   - apply Hlater0 in H; auto. contradiction.
   - apply Hlater in H; auto. contradiction.
-  
+Admitted.
 
 Lemma tokenization_unique : forall ts ts' rest rest' code rus,
     tokenized rus code ts rest
