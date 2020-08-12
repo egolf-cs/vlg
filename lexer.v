@@ -2,7 +2,6 @@ Require Import Ascii.
 Require Import List.
 Import ListNotations.
 Require Import PeanoNat.
-Require Import Coq.Program.Wf.
 Require Import Coq.omega.Omega.
 Require Import Coq.Numbers.NatInt.NZOrder.
 
@@ -26,6 +25,7 @@ Fixpoint String_eq (l1 l2 : String) : bool :=
                            else false
   | _, _ => false
   end.
+
 
 Lemma String_eq_correct : forall l1 l2,
     l1 = l2 <-> String_eq l1 l2 = true.
