@@ -1189,13 +1189,12 @@ Proof.
   - apply H.
 Qed.
 
-Lemma no_tokens_no_pref : forall code rest rus l r,
-  lex' (map init_srule rus) code (lt_wf _) = ([], rest)
+Lemma no_tokens_no_pref : forall code rest rus l r Ha,
+  lex' (map init_srule rus) code Ha = ([], rest)
   -> In (l, r) rus
   -> re_max_pref code r [] \/ re_no_max_pref code r.
 Proof.
-  intros code rest rus l r Hlex Hin.
-  unfold lex'' in Hlex.
+  intros code rest rus l r Ha Hlex Hin.
   apply lex'_cases in Hlex. destruct Hlex.
   destruct H0; destruct (max_of_prefs (max_prefs code (map init_srule rus))) eqn:E0;
     simpl in H0; [| destruct H0 as (suf & H0)]; rewrite H0 in E0.
@@ -1406,18 +1405,7 @@ Proof.
       repeat inj_all; subst; repeat ltb_lt_all; repeat eqb_eq_all; subst;
         try(omega); try(contradiction); try(discriminate).
 Qed.
-    
-Lemma tokens_head : forall code rest rus a ts,
-    lex' (map init_srule rus) code (lt_wf _) = (a :: ts, rest)
-    -> rules_is_function rus
-    -> first_token code rus a.
-Proof.
-  intros code rest rus a ts Hlex.
-  apply lex'_cases in Hlex. destruct a eqn:E0.
-  destruct Hlex as (ph & pt & suffix & Heq' & Hlex). destruct Hlex as (Hlex & Heq). subst.
-  apply first_token_mpref with (suffix := suffix). apply Heq'.
-Qed.
-    
+  
 Lemma lex'_splits : forall ts code rest rus Ha,
   lex' (map init_srule rus) code Ha = (ts, rest)
   -> code = (concat (map snd ts)) ++ rest.
@@ -1440,67 +1428,50 @@ Proof.
   }
 Qed.
 
-Lemma tokens_tail : forall code Ha ts l p rest rus, 
-    lex' (map init_srule rus) code Ha = ((l, p) :: ts, rest)
-    -> rules_is_function rus
-    -> exists(code' : String) Ha',
-      p ++ code' ++ rest = code
-      /\ lex' (map init_srule rus) (code' ++ rest) Ha' = (ts, rest).
-Proof.
-  intros code Ha ts l p rest rus Hlex Hfunc.
-  apply lex'_cases in Hlex.
-  destruct Hlex as (ph & pt & suffix & Hlex). destruct Hlex as (Heq & Hlex).
-  destruct Hlex as (Hlex & Hnempt).
-  subst.
-  assert(Asplit : (ph :: pt) ++ suffix = code).
-  {
-    assert(Heq' := Heq).
-    apply exists_rus_of_mpref in Heq'.
-    destruct Heq' as (r & Heq'). destruct Heq'.
-    symmetry in H0.
-    assert(L := max_pref_fn_splits _ _ _ _ H0).
-    auto.
-  }
-  assert(Acode' : exists code', suffix = code' ++ rest).
-  {
-    subst. apply lex'_splits in Hlex. eexists. eauto.
-  }
-  destruct Acode' as (code' & Acode'). rewrite Acode' in Asplit.
-  subst.
-  exists code'. eexists. split.
-  - auto.
-  - eauto.
-Qed.
-
-Lemma lex'_Ha_moot : forall code rus Ha Ha',
-    lex' (map init_srule rus) code Ha = lex' (map init_srule rus) code Ha'.
-Admitted.
-
-Theorem lex'_sound : forall ts code rest rus,
-    lex' (map init_srule rus) code (lt_wf _) = (ts, rest)
+Theorem lex'_sound : forall (x : nat) (Ha_x : Acc lt x) code (Ha : Acc lt (length code)) ts rest rus,
+    x = length code
+    -> lex' (map init_srule rus) code Ha = (ts, rest)
     -> rules_is_function rus
     -> tokenized rus code ts rest.
 Proof.
-  
-  induction ts; intros code rest rus H Hfunc.
+  intros x Ha_x. induction Ha_x. intros.
+  subst.
+  destruct ts.
   {
-    assert (H' := H).
-    apply no_tokens_suffix_self in H'. rewrite H'. apply Tkd0. subst.
-    intros t Hfst. inv Hfst. simpl.
-    apply no_tokens_no_pref with (l := l) (r := r) in H. 2: { apply Hex. }
-    destruct H.
-    - apply max_pref_unique with (p := p) in H. 2: { apply Hmpref. }
-      apply H.
-    - apply pref_not_no_pref in Hmpref. contradiction.    
+    assert(Aeq : code = rest).
+    { apply lex'_cases in H2. destruct H2. auto. }
+    subst rest.
+    apply Tkd0. intros t C. inv C.
+    apply no_tokens_no_pref with (l := l) (r := r) in H2; auto.
+    destruct H2; inv Hmpref; inv H1.
+    - apply H8 in H2. destruct H2.
+      + destruct p eqn:E.
+        * contradiction.
+        * simpl in H1. omega.
+      + contradiction.
+    - apply H6 in H2. contradiction.
   }
   {
-    assert (H' := H).
-    apply tokens_head in H; auto. destruct a.
-    apply tokens_tail in H'; auto.
-    destruct H' as (code' & H'). destruct H' as (Ha & H'). destruct H' as (Heq & IP).
-    subst code. apply Tkd1.
-    - apply H.
-    - apply IHts; auto. rewrite lex'_Ha_moot with (Ha' := Ha). auto.
+    apply lex'_cases in H2.
+    destruct t.
+    destruct H2 as (h & t & H2). destruct H2 as (s & Heq' & H2). destruct H2.
+    subst.
+    assert(A0 : s = concat (map snd ts) ++ rest).
+    { apply lex'_splits in H1. auto. }
+    assert(A : code = (h :: t) ++ concat (map snd ts) ++ rest).
+    {
+      clear H1.
+      apply exists_rus_of_mpref in Heq'.
+      destruct Heq'. destruct H1.
+      symmetry in H2. apply max_pref_fn_splits in H2.
+      subst. auto.
+    }
+    rewrite A.
+    apply Tkd1.
+    - rewrite <- A. eapply first_token_mpref; eauto.
+    - apply H0 with (y := length s) in H1; auto.
+      + subst. auto.
+      + subst. simpl. clear. induction t; simpl; omega.
   }
 Qed.
 
@@ -1509,20 +1480,40 @@ Theorem lex_sound : forall ts code rest rus,
     -> rules_is_function rus
     -> tokenized rus code ts rest.
 Proof.
-  intros. unfold lex in H. apply lex'_sound in H; auto.
+  intros. unfold lex in H.
+  apply lex'_sound with (x := length code) in H; auto.
+  apply lt_wf.
 Qed.
 
-Lemma eq_LI_eq_ru : forall rus ru1 ru2 n,
+Lemma eq_index_eq_ru : forall n rus ru1 ru2,
+    at_index ru1 n rus
+    -> at_index ru2 n rus
+    -> ru1 = ru2.
+Proof.
+  induction n; intros.
+  - inv H. inv H0. auto.
+  - inv H. inv H0. eapply IHn; eauto.
+Qed.
+
+Lemma eq_LI_eq_ru : forall n rus ru1 ru2,
     least_index ru1 n rus
     -> least_index ru2 n rus
     -> ru1 = ru2.
-Admitted.
+Proof.
+  intros. inv H. inv H0. eapply eq_index_eq_ru; eauto.
+Qed.
 
 Lemma least_index_unique : forall rus ru n1 n2,
     least_index ru n1 rus
     -> least_index ru n2 rus
     -> n1 = n2.
-Admitted.
+Proof.
+  intros. inv H. inv H0.
+  destruct (Nat.lt_trichotomy n1 n2); [| destruct H].
+  - apply Hnot0 in H. contradiction.
+  - auto.
+  - apply Hnot in H. contradiction.
+Qed.
 
 Lemma earlier_rule_split : forall rus ru1 ru2,
   In ru1 rus
@@ -1546,6 +1537,12 @@ Proof.
     auto.
 Qed.
 
+Lemma flip_gt : forall n m,
+    n > m <-> m < n.
+Proof.
+  intros. split; intros; omega.
+Qed.
+
 Lemma first_token_unique : forall t t' code rus,
     first_token code rus t
     -> first_token code rus t'
@@ -1553,8 +1550,18 @@ Lemma first_token_unique : forall t t' code rus,
 Proof.
   intros. inv H; inv H0.
   (* show p and p0 are prefixes of equal length and thus equal *)
+  assert(Alen : length p = length p0).
+  {
+    destruct (Nat.lt_trichotomy (length p) (length p0)); [|destruct H].
+    - apply flip_gt in H. eapply Hout in H; destruct H; eauto.
+    - auto.
+    - apply flip_gt in H. apply Hout0 with (l' := l) (r' := r) in H; destruct H; auto.
+  }
   assert(Aeq : p = p0).
-  { admit. }
+  { 
+    inv Hmpref. inv Hmpref0.
+    eapply eq_len_eq_pref in Alen; eauto.
+  }
   subst.
   (* show neither rule can be earlier than the other and thus they are equal *)
   specialize (Hlater r0 l0).
@@ -1564,7 +1571,7 @@ Proof.
   - inv H. auto.
   - apply Hlater0 in H; auto. contradiction.
   - apply Hlater in H; auto. contradiction.
-  
+Qed.
 
 Lemma tokenization_unique : forall ts ts' rest rest' code rus,
     tokenized rus code ts rest
