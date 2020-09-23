@@ -7,7 +7,6 @@ Require Import Ascii.
 
 Ltac inv H := inversion H; subst; clear H.
 
-(* Borrowed these from another paper, actually about regex derivatives *)
 Variable Sigma : Type.
 Variable Sigma_dec : forall(a a' : Sigma), {a = a'} + {a <> a'}.
 Theorem Sigma_dec_refl : forall(T : Type) (p1 p2 : T) (a : Sigma), p1 = if Sigma_dec a a then p1 else p2.
@@ -64,7 +63,6 @@ Inductive exp_match : String -> regex -> Prop :=
                           
   (* Had to restrict this case with H0 to avoid infinite regress.
    Both s1 and s2 must "contribute" to s1 ++ s2.
-
    The set of possible s1 ++ s2 without H0 is equivalent to the set with H0,
    except for the empty string, which is addressed with MStar0. *)
   | MStarApp s1 s2 re
