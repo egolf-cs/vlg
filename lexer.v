@@ -839,6 +839,8 @@ Inductive earlier_rule : Rule -> Rule -> list Rule -> Prop :=
            -> n1 < n2) :
     earlier_rule ru1 ru2 rus.
 
+(* TODO: Reformulate first_token to align with paper. I.e. Define MaxPref with respect to a set of rules *)
+
 Inductive first_token : String -> (list Rule) -> Token -> Prop :=
 (* l is Token.label, p is Token.value *)
 | FT1 (code : String) (p : Prefix) (l : Label) (r : regex) (rus : list Rule)
