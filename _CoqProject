@@ -1,5 +1,13 @@
 -Q . VLG
 
-regex.v
+
+aux/coredefs.v
+aux/ltac.v
+aux/lemmas.v
+
+matcher.v
+prefixer.v
 lexer.v
-instance.v
+
+spec.v
+correctness.v

@@ -3,9 +3,8 @@ Import ListNotations.
 Require Import Nat.
 Require Import Coq.Program.Wf.
 Require Import Coq.omega.Omega.
-Require Import Ascii.
 
-Ltac inv H := inversion H; subst; clear H.
+From VLG Require Import ltac.
 
 Variable Sigma : Type.
 Variable Sigma_dec : forall(a a' : Sigma), {a = a'} + {a <> a'}.
@@ -17,7 +16,6 @@ Theorem Sigma_dec_refl : forall(T : Type) (p1 p2 : T) (a : Sigma), p1 = if Sigma
 Qed.
 Definition String : Type := list Sigma.
 
-(* Didn't bother with Intersection and Complement yet *)
 Inductive regex : Type :=
   | EmptySet
   | EmptyStr
@@ -25,6 +23,43 @@ Inductive regex : Type :=
   | App (r1 r2 : regex)
   | Union (r1 r2 : regex)
   | Star (r : regex).
+
+Fixpoint regex_eq (r1 r2 : regex) : bool :=
+  match r1, r2 with
+  | EmptyStr, EmptyStr => true
+  | EmptySet, EmptySet => true
+  | Char a, Char b => if (Sigma_dec a b) then true else false
+  | App x1 y1, App x2 y2 => andb (regex_eq x1 x2) (regex_eq y1 y2)
+  | Union x1 y1, Union x2 y2 => andb (regex_eq x1 x2) (regex_eq y1 y2)
+  | Star a, Star b => regex_eq a b
+  | _, _ => false
+  end.
+
+Lemma regex_eq_correct : forall r1 r2,
+    r1 = r2 <-> regex_eq r1 r2 = true.
+Proof.
+  induction r1; intros r2; split; intros H; subst; try(auto);
+    try(unfold regex_eq in H; repeat dmh; subst; auto; discriminate).
+  - simpl. dmg; [reflexivity | contradiction].
+  - assert(A1 : regex_eq r1_1 r1_1 = true). apply IHr1_1; reflexivity.
+    assert(A2 : regex_eq r1_2 r1_2 = true). apply IHr1_2; reflexivity.
+    simpl. rewrite A1. rewrite A2. auto.
+  - destruct r2; simpl in H; try(discriminate).
+    destruct (regex_eq r1_1 r2_1) eqn:E1; destruct (regex_eq r1_2 r2_2) eqn:E2; try(discriminate).
+    apply IHr1_1 in E1. apply IHr1_2 in E2. subst. reflexivity.
+  - assert(A1 : regex_eq r1_1 r1_1 = true). apply IHr1_1; reflexivity.
+    assert(A2 : regex_eq r1_2 r1_2 = true). apply IHr1_2; reflexivity.
+    simpl. rewrite A1. rewrite A2. auto.
+  - destruct r2; simpl in H; try(discriminate).
+    destruct (regex_eq r1_1 r2_1) eqn:E1; destruct (regex_eq r1_2 r2_2) eqn:E2; try(discriminate).
+    apply IHr1_1 in E1. apply IHr1_2 in E2. subst. reflexivity.
+  - assert(A : regex_eq r1 r1 = true). apply IHr1; reflexivity.
+    simpl. apply A.
+  - destruct r2; simpl in H; try(discriminate). apply IHr1 in H. subst; reflexivity.
+Qed.
+
+Lemma regex_dec : forall r r' : regex, {r = r'} + {r <> r'}.
+Proof. decide equality. apply Sigma_dec. Qed.
 
 Inductive exp_match : String -> regex -> Prop :=
   | MEmpty : exp_match [] EmptyStr
@@ -45,32 +80,6 @@ Inductive exp_match : String -> regex -> Prop :=
                  (H2 : exp_match s2 (Star re)) :
       exp_match (s1 ++ s2) (Star re).
 
-(*
-Inductive exp_match : String -> regex -> Prop :=
-  | MEmpty : exp_match [] EmptyStr
-  | MChar x : exp_match [x] (Char x)
-  | MApp s1 re1 s2 re2
-             (H1 : exp_match s1 re1)
-             (H2 : exp_match s2 re2) :
-             exp_match (s1 ++ s2) (App re1 re2)
-  | MUnionL s1 re1 re2
-                (H1 : exp_match s1 re1) :
-                exp_match s1 (Union re1 re2)
-  | MUnionR re1 s2 re2
-                (H2 : exp_match s2 re2) :
-                exp_match s2 (Union re1 re2)
-  | MStar0 re : exp_match [] (Star re)
-                          
-  (* Had to restrict this case with H0 to avoid infinite regress.
-   Both s1 and s2 must "contribute" to s1 ++ s2.
-   The set of possible s1 ++ s2 without H0 is equivalent to the set with H0,
-   except for the empty string, which is addressed with MStar0. *)
-  | MStarApp s1 s2 re
-                 (H0 : s1 <> [])
-                 (H1 : exp_match s1 re)
-                 (H2 : exp_match s2 (Star re)) :
-      exp_match (s1 ++ s2) (Star re).*)
-
 Fixpoint nullable (r : regex) : bool:=
   match r with
   | EmptySet => false
@@ -80,16 +89,14 @@ Fixpoint nullable (r : regex) : bool:=
   | Union r1 r2 => orb (nullable r1) (nullable r2)
   | Star _ => true
   end.
-
-Fixpoint nullify (r : regex) := if (nullable r) then EmptyStr else EmptySet.
-
+  
 Fixpoint derivative (a : Sigma) (r : regex) :=
   match r with
   | EmptySet => EmptySet
   | EmptyStr => EmptySet
   | Char x => if Sigma_dec x a then EmptyStr else EmptySet
   | App r1 r2 => if (nullable r1) then Union (App (derivative a r1) r2) (derivative a r2)
-                                  else (App (derivative a r1) r2)               
+                                  else (App (derivative a r1) r2)
   | Union r1 r2 => Union (derivative a r1) (derivative a r2)
   | Star r => App (derivative a r) (Star r)
   end.
@@ -159,7 +166,7 @@ Lemma star_concat :
                 -> exp_match xs r')).
 Proof.
   intros s r' hm.
-  remember (Star r') as r. generalize dependent r'. 
+  remember (Star r') as r. generalize dependent r'.
   induction hm; intros r' heq; inv heq.
   - exists []; split; auto.
     intros xs hi; inv hi.
@@ -236,7 +243,7 @@ Proof.
       * apply IHxss. intros xs H1. apply H. simpl. right. apply H1.
     + simpl. reflexivity.
 Qed.
-                     
+
 Theorem der_matchb : forall(a : Sigma) (s : String) (r : regex),
     true = exp_matchb (a::s) r <-> true = exp_matchb s (derivative a r).
 Proof.
@@ -293,7 +300,7 @@ Proof.
         destruct H as [s1]. destruct H as [yss].
         rewrite <- H in hall.
         assert (A : In (a :: s1) ((a :: s1) :: yss)).
-        { simpl. left. reflexivity. } 
+        { simpl. left. reflexivity. }
         simpl. replace s with (s1 ++ (concat yss)).
         * apply MApp.
           -- apply IHr. apply hall in A. destruct A. apply H0.
