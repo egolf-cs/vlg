@@ -1,6 +1,7 @@
 # Verbatim: A verified lexer generator
 
 ## Compilation
+This project has been tested with Coq version 8.11.0.
 
 To compile the project:
 
