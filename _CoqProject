@@ -11,3 +11,7 @@ lexer.v
 
 spec.v
 correctness.v
+
+sigma.v
+instance.v
+

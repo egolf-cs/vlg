@@ -5,10 +5,16 @@ Require Import Coq.Program.Wf.
 Require Import Coq.omega.Omega.
 
 From VLG Require Import ltac.
+From VLG Require Import sigma.
 
-Variable Sigma : Type.
-Variable Sigma_dec : forall(a a' : Sigma), {a = a'} + {a <> a'}.
+Definition Sigma := sigma.Sigma.
+Theorem Sigma_dec : forall(a a' : Sigma), {a = a'} + {a <> a'}.
+Proof.
+  decide equality.
+Qed.
+  
 Theorem Sigma_dec_refl : forall(T : Type) (p1 p2 : T) (a : Sigma), p1 = if Sigma_dec a a then p1 else p2.
+Proof.
   intros T p1 p2 a.
   destruct (Sigma_dec a a).
   - reflexivity.
