@@ -13,5 +13,5 @@ spec.v
 correctness.v
 
 sigma.v
-instance.v
+evaluation/instance.v
 

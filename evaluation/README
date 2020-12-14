@@ -1,0 +1,5 @@
+I'm using this command to compile the OCaml:
+ocamlc -w -20 -w -26 -o instancedriver instance.mli instance.ml instancedriver.ml
+
+Then I'm executing things with:
+./instancedriver
