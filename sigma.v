@@ -1,6 +1,5 @@
-Require Import List.
-Import ListNotations.
+Require Import Ascii.
+Require Import String.
 
-Inductive Sigma :=
-| A
-| B.
+Definition Sigma := ascii.
+

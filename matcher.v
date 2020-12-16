@@ -10,7 +10,7 @@ From VLG Require Import sigma.
 Definition Sigma := sigma.Sigma.
 Theorem Sigma_dec : forall(a a' : Sigma), {a = a'} + {a <> a'}.
 Proof.
-  decide equality.
+  apply Ascii.ascii_dec.
 Qed.
   
 Theorem Sigma_dec_refl : forall(T : Type) (p1 p2 : T) (a : Sigma), p1 = if Sigma_dec a a then p1 else p2.
