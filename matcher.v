@@ -86,13 +86,27 @@ Inductive exp_match : String -> regex -> Prop :=
                  (H2 : exp_match s2 (Star re)) :
       exp_match (s1 ++ s2) (Star re).
 
+Fixpoint nullable' (r : regex) : bool:=
+  match r with
+  | EmptySet => false
+  | EmptyStr => true
+  | Char _ => false
+  | App r1 r2 => andb (nullable' r1) (nullable' r2)
+  | Union r1 r2 => orb (nullable' r1) (nullable' r2)
+  | Star _ => true
+  end.
+
 Fixpoint nullable (r : regex) : bool:=
   match r with
   | EmptySet => false
   | EmptyStr => true
   | Char _ => false
-  | App r1 r2 => andb (nullable r1) (nullable r2)
-  | Union r1 r2 => orb (nullable r1) (nullable r2)
+  | App r1 r2 => if negb (nullable r2) (* short circuit and *)
+                then false
+                else (nullable r1)
+  | Union r1 r2 => if (nullable r2)    (* short circuit or *)
+                  then true
+                  else (nullable r1)
   | Star _ => true
   end.
   

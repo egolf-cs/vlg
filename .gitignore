@@ -12,3 +12,9 @@
 instance.ml
 instance.mli
 instancedriver
+*.o
+*.cmx
+*.data
+*.json
+*.out
+data.py

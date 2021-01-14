@@ -16,10 +16,7 @@ let read_whole_file filename =
     close_in ch;
     s
 
-let code = to_chars (read_whole_file "data.txt")
-let results = lex rus code
-
-let rec token_to_string token =
+let token_to_string token =
 match token with
 | label, pref -> "(" ^ (to_string label) ^ ", " ^ (to_string pref) ^ ")"
 
@@ -29,10 +26,45 @@ match tokens with
 | t::[] -> (token_to_string t)
 | t::ts -> (token_to_string t) ^ ",\n" ^ (tokens_to_string ts)
 
-let rec print_results rs =
+let print_results rs =
 match rs with
-| ts, rest -> Printf.printf "Tokens: %s\n" (tokens_to_string ts) ; Printf.printf "Rest: %s\n" (to_string rest)
+| ts, rest -> (*Printf.printf "Tokens: %s\n" (tokens_to_string ts) ;*) Printf.printf "Rest: %s\n" (to_string rest)
 
+let float_to_string f = Printf.sprintf "%.5f" f
 
-let () = Printf.printf "Code: %s\n" (to_string code)
-let () = print_results results
+let rec times_to_string' times =
+match times with
+| [] -> ""
+| t::[] -> (float_to_string t)
+| t::ts -> (float_to_string t) ^ "," ^ (times_to_string' ts)
+
+let times_to_string times = Printf.sprintf "[%s]" (times_to_string' times)
+
+let rec print_evaluation results =
+match results with
+| fname, code_len, ts, rest_len ->
+  let oc = open_out ("results/"^fname) in
+  let ts' = times_to_string ts in
+  Printf.fprintf oc "{\n\"fname\":\"%s\",\n \"input_len\":%d,\n \"times\":%s,\n \"rest_len\":%d\n}" fname code_len ts' rest_len;
+  close_out oc
+
+let time f x =
+    let t = Sys.time() in
+    let fx = f x in
+    Sys.time() -. t
+
+let rec n_copies n x =
+match n with
+| 0 -> []
+| _ -> x :: (n_copies (n-1) x)
+
+let evaluate fname =
+  let code = to_chars (read_whole_file ("data/"^fname)) in
+  let codes = n_copies 5 code in
+  let ts = map (time (lex rus)) codes in
+  let rest = (to_string (snd (lex rus code))) in
+  let rest_len = (String.length rest) in
+  (fname, List.length code, ts, rest_len)
+
+let xs = Array.to_list (Sys.readdir "data")
+let ps = map (fun x -> (print_evaluation (evaluate x))) xs

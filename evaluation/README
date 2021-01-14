@@ -1,7 +1,0 @@
-First I compile the main project with make.
-
-Then I navigate to evaluation and use this command to compile the OCaml:
-ocamlc -w -20 -w -26 -o instancedriver instance.mli instance.ml instancedriver.ml
-
-Then I'm executing things with:
-./instancedriver
