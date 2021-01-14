@@ -10,10 +10,16 @@ ocamlopt -O3 -w -20 -w -26 -o instancedriver instance.mli instance.ml instancedr
 We compiled using the 4.11.0+flambda version of OCaml.
 
 ## I/O
-Place your input data into the data folder. The results will be placed in the results folder.
+~~~
+mkdir data results
+~~~
+Place your input json data into the data folder. The results will be placed in the results folder.
 
 ## Execution
-To execute the evaluation driver, run ./instancedriver
+To execute the evaluation driver, run
+~~~
+./instancedriver
+~~~
 
 ## Visualization
 Once the driver has finished executing, the results can be visualized with
