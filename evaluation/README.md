@@ -10,6 +10,7 @@ ocamlopt -O3 -w -20 -w -26 -o instancedriver instance.mli instance.ml instancedr
 We compiled using the 4.11.0+flambda version of OCaml.
 
 ## I/O
+From within this folder,
 ~~~
 mkdir data results
 ~~~
