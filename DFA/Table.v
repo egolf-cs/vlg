@@ -87,18 +87,18 @@ Fixpoint get_sim' (es : list regex) (e : regex) : option regex :=
   | [] => None
   | h :: t => if re_sim e h then Some h else get_sim' t e
   end.
+
+Theorem get_sim'_correct : forall es e e',
+    get_sim' es e = Some e' -> In e' es /\ re_sim e e' = true.
+Proof.
+  induction es; intros; try(discriminate).
+  simpl in H. dm.
+  - injection H; intros. rewrite H0 in *. split; simpl; auto.
+  - apply IHes in H. destruct H. split; simpl; auto.
+Qed.
   
 Definition get_sim (T : Table) (e : regex) : option regex :=
   get_sim' (get_states T) e.
-
-(** uniqueness issues? *)
-Theorem get_sim'_correct : forall T e e',
-    get_sim T e = Some e' -> In e' (get_states T) /\ re_sim e e' = true.
-Proof.
-  intros T. induction (get_states T) eqn:E.
-  - intros. unfold get_sim in H. rewrite E in H. simpl in H. discriminate.
-  - (* need a more general IH *)
-Admitted.
                                
 Theorem get_sim_correct : forall T e e',
     get_sim T e = Some e' -> In e' (get_states T) /\ re_sim e e' = true.
