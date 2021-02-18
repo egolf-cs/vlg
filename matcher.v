@@ -7,7 +7,18 @@ Require Import Coq.omega.Omega.
 From VLG Require Import ltac.
 From VLG Require Import sigma.
 
+
 Definition Sigma := sigma.Sigma.
+Definition String : Type := list Sigma.
+
+Inductive regex : Type :=
+  | EmptySet
+  | EmptyStr
+  | Char (t : Sigma)
+  | App (r1 r2 : regex)
+  | Union (r1 r2 : regex)
+  | Star (r : regex).
+
 Theorem Sigma_dec : forall(a a' : Sigma), {a = a'} + {a <> a'}.
 Proof.
   apply Ascii.ascii_dec.
@@ -20,15 +31,10 @@ Proof.
   - reflexivity.
   - contradiction.
 Qed.
-Definition String : Type := list Sigma.
 
-Inductive regex : Type :=
-  | EmptySet
-  | EmptyStr
-  | Char (t : Sigma)
-  | App (r1 r2 : regex)
-  | Union (r1 r2 : regex)
-  | Star (r : regex).
+Lemma String_dec : forall s s' : String, {s = s'} + {s <> s'}.
+Proof. decide equality. apply Sigma_dec. Qed.
+
 
 Fixpoint regex_eq (r1 r2 : regex) : bool :=
   match r1, r2 with
@@ -67,6 +73,14 @@ Qed.
 Lemma regex_dec : forall r r' : regex, {r = r'} + {r <> r'}.
 Proof. decide equality. apply Sigma_dec. Qed.
 
+
+Lemma regex_eq_refl : forall e, regex_eq e e = true.
+  intros. induction e; auto.
+  - simpl. rewrite <- Sigma_dec_refl. auto.
+  - simpl. apply Bool.andb_true_iff. split; auto.
+  - simpl. apply Bool.andb_true_iff. split; auto.
+Qed.
+
 Inductive exp_match : String -> regex -> Prop :=
   | MEmpty : exp_match [] EmptyStr
   | MChar x : exp_match [x] (Char x)
@@ -85,6 +99,9 @@ Inductive exp_match : String -> regex -> Prop :=
                  (H1 : exp_match s1 re)
                  (H2 : exp_match s2 (Star re)) :
       exp_match (s1 ++ s2) (Star re).
+
+Definition re_equiv (e1 e2 : regex) : Prop :=
+  forall z, exp_match z e1 <-> exp_match z e2.
 
 Fixpoint nullable' (r : regex) : bool:=
   match r with
@@ -173,6 +190,14 @@ Proof.
       * apply IHr1 in H2. rewrite <- H2. destruct (nullable r2); simpl; reflexivity.
       * apply IHr2 in H1. rewrite <- H1. destruct (nullable r1); simpl; reflexivity.
     + simpl. reflexivity.
+Qed.
+
+Theorem nullable_bridge' : forall(r : regex),
+    nullable r = true <-> exp_match [] r.
+Proof.
+  split; intros.
+  - symmetry in H. apply nullable_bridge; auto.
+  - symmetry. apply nullable_bridge; auto.
 Qed.
 
 (* star_concat upto concat_star necessary for hard star case of der_match *)
@@ -271,6 +296,16 @@ Proof.
   split; generalize dependent r; induction s; intros r H; simpl; simpl in H; apply H.
 Qed.
 
+Theorem der_matchb' : forall(a : Sigma) (s : String) (r : regex),
+    exp_matchb (a::s) r = exp_matchb s (derivative a r).
+Proof.
+  intros. destruct (exp_matchb (a :: s) r) eqn:E.
+  - symmetry in E. rewrite der_matchb in E. auto.
+  - symmetry. rewrite false_not_true in *.
+    intros C. destruct E.
+    symmetry in C. rewrite <- der_matchb in C. auto.
+Qed.
+  
 Theorem der_match : forall(a : Sigma) (s : String) (r : regex),
     exp_match (a::s) r <-> exp_match s (derivative a r).
 Proof.

@@ -1,17 +1,33 @@
 -Q . VLG
 
 
-aux/coredefs.v
 aux/ltac.v
-aux/lemmas.v
-
+sigma.v
 matcher.v
+regexNotations.v
+aux/coredefs.v
+
+spec.v
+
 prefixer.v
 lexer.v
 
-spec.v
+aux/lemmas.v
 correctness.v
 
-sigma.v
-evaluation/instance.v
+memo/memocore.v
+memo/memospec.v
+memo/memopref.v
+memo/memolexer.v
 
+DFA/simdef.v
+DFA/simlemmas.v
+DFA/simcorrect.v
+
+DFA/Table.v
+DFA/Table_spec.v
+DFA/Tablecorrect.v
+
+DFA/DFA.v
+
+evaluation/instance.v

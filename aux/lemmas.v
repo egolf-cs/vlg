@@ -674,6 +674,19 @@ Proof.
     try(auto).
 Qed.
 
+Lemma all_mprefs_nil : forall label p ps suffix rs r,
+  max_of_prefs (max_prefs [] (r :: rs)) <> (label, Some (p :: ps, suffix)).
+Proof.
+  intros label p ps suffix. induction rs; intros.
+  - intro C. simpl in *. unfold extract_fsm_for_max in *. unfold longer_pref in *. simpl.
+    repeat dm; repeat inj_all; dm; try(discriminate).
+  - specialize (IHrs a). intros C. destruct IHrs.
+    simpl in *. unfold extract_fsm_for_max in *. unfold longer_pref in *. simpl.
+    repeat dm;
+      repeat inj_all; subst; repeat ltb_lt_all; repeat eqb_eq_all;
+        subst; simpl in *; try(omega); repeat dm; try(discriminate).
+Qed.
+
 Lemma mpref_app_dist : forall ps1 ps2,
     max_of_prefs (ps1 ++ ps2) = longer_pref (max_of_prefs ps1) (max_of_prefs ps2).
 Proof.

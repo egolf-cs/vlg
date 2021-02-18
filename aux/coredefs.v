@@ -4,20 +4,17 @@ Require Import PeanoNat.
 Require Import Coq.omega.Omega.
 Require Import Coq.Numbers.NatInt.NZOrder.
 
-From VLG Require Import matcher.
 From VLG Require Import ltac.
+From VLG Require Import matcher.
 
 Definition Sigma := matcher.Sigma.
-Definition Sigma_dec := matcher.Sigma_dec.
 Definition String := matcher.String.
-
-Lemma String_dec : forall s s' : String, {s = s'} + {s <> s'}.
-Proof. decide equality. apply Sigma_dec. Qed.
 
 Definition State : Type := regex.
 Definition transition : Sigma -> State -> State := derivative.
 Definition accepts : String -> State -> bool := exp_matchb.
 Definition accepting : State -> bool:= nullable.
+Definition defState : State := EmptySet.
 
 Lemma accepts_nil: forall(fsm : State),
     accepting fsm = accepts [] fsm.
